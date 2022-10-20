@@ -1,0 +1,41 @@
+source:
+  type: vertica
+  config:
+    # Coordinates
+    host_port: localhost:5433
+    database: VMart
+
+    # Credentials
+    username: "dbadmin"
+    password: ""
+
+# source:
+#   type: file
+#   config:
+#     # Coordinates
+#     filename: demo_data.json
+
+sink:
+  # sink configs
+  type: 'datahub-rest'
+  config:
+    server: 'http://localhost:8080'
+
+# transformers:
+#   - type: "simple_add_dataset_ownership"
+#     config:
+#       owner_urns:
+#         - "urn:li:corpuser:dbadmin"
+#       ownership_type: "PRODUCER"
+# transformers:
+#       # - type: "simple_add_dataset_domain"
+#       #   config:
+#       #     semantics: OVERWRITE
+#       #     domains:
+#       #       - urn:li:domain:vertica
+#       - type: "simple_add_dataset_ownership"
+#         config:
+#           owner_urns:
+#             - "urn:li:corpuser:dbadmin"
+#           ownership_type: "PRODUCER"
+      

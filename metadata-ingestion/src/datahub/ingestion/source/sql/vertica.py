@@ -24,7 +24,6 @@ from datahub.ingestion.source.sql.sql_common import (
 )
 from datahub.utilities import config_clean
 
-
 class UUID(String):
     """The SQL UUID type."""
 
