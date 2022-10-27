@@ -82,6 +82,7 @@ try:
                     "comment": _comment,
                 }
             )
+        print(result)
         return result
 
     DatabricksPyhiveDialect.get_columns = dbapi_get_columns_patched

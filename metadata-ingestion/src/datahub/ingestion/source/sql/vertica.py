@@ -1,3 +1,4 @@
+from functools import cache
 import re
 from textwrap import dedent
 from typing import Any, Dict
@@ -8,7 +9,7 @@ from sqlalchemy import sql, util
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.sqltypes import TIME, TIMESTAMP, String
 from sqlalchemy_vertica.base import VerticaDialect
-
+from sqlalchemy.engine import reflection
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.decorators import (
     SourceCapability,
@@ -41,6 +42,7 @@ def TIME_WITH_TIMEZONE(*args, **kwargs):
 
 
 def get_view_definition(self, connection, view_name, schema=None, **kw):
+  
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {
             "schema": schema.lower()
@@ -64,62 +66,70 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
     return view_def
 
 
+
+
+
 def get_columns(self, connection, table_name, schema=None, **kw):
     if schema is not None:
-        schema_condition = "lower(table_schema) = '%(schema)s'" % {
-            "schema": schema.lower()
-        }
+        schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
     else:
         schema_condition = "1"
 
-    sql_pk_column = sql.text(
-        dedent(
-            """
+    s = sql.text(dedent("""
+        SELECT column_name, data_type, column_default,is_nullable
+        FROM v_catalog.columns
+        WHERE lower(table_name) = '%(table)s'
+        AND %(schema_condition)s
+        UNION ALL
+        SELECT column_name, data_type, '' as column_default, true as is_nullable
+        FROM v_catalog.view_columns
+        WHERE lower(table_name) = '%(table)s'
+        AND %(schema_condition)s
+        """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+
+    spk = sql.text(dedent("""
             SELECT column_name
             FROM v_catalog.primary_keys
-            WHERE table_name = '%(table_name)s'
+            WHERE lower(table_name) = '%(table)s'
             AND constraint_type = 'p'
             AND %(schema_condition)s
-            """
-            % {"table_name": table_name, "schema_condition": schema_condition}
-        )
-    )
-    primary_key_columns = tuple(row[0] for row in connection.execute(sql_pk_column))
+        """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
 
-    sql_get_column = sql.text(
-        dedent(
-            """
-            SELECT column_name, data_type, column_default, is_nullable
-            FROM v_catalog.columns
-            WHERE table_name = '%(table_name)s'
-            AND %(schema_condition)s
-            UNION ALL
-            SELECT column_name, data_type, '' as column_default, true as is_nullable
-            FROM v_catalog.view_columns
-            WHERE lower(table_name) = '%(table_name)s'
-            AND %(schema_condition)s
-            """
-            % {"table_name": table_name, "schema_condition": schema_condition}
-        )
-    )
 
+    pk_columns = [x[0] for x in connection.execute(spk)]
+    
     columns = []
-    for row in list(connection.execute(sql_get_column)):
-        name = row.column_name
-        primary_key = name in primary_key_columns
-        type = row.data_type.lower()
-        default = row.column_default
-        nullable = row.is_nullable
+    for row in connection.execute(s):
+            
+            name = row.column_name 
+            dtype = row.data_type.lower()
+            primary_key = name in pk_columns
+            default = row.column_default
+            nullable = row.is_nullable
+          
+            column_info = self._get_column_info(
+                name,
+                dtype,
+                default,
+                nullable,
+                schema
+                
+                
+                
 
-        column_info = self._get_column_info(name, type, default, nullable, schema)
-        column_info.update({"primary_key": primary_key})
-        columns.append(column_info)
+            )
+            
+            
+            column_info.update({'primary_key': primary_key})
+            columns.append(column_info)
 
+           
+    print(columns)
     return columns
 
 
 def _get_column_info(  # noqa: C901
-    self, name, data_type, default, is_nullable, schema=None
+    self, name, data_type, default,is_nullable ,schema=None,
 ):
 
     attype: str = re.sub(r"\(.*\)", "", data_type)
@@ -202,21 +212,27 @@ def _get_column_info(  # noqa: C901
                     + match.group(2)
                     + match.group(3)
                 )
+    
+
 
     column_info = dict(
         name=name,
         type=coltype,
         nullable=is_nullable,
         default=default,
+        comment = "owner" + " " + "create_time",
         autoincrement=autoincrement,
     )
+
     return column_info
 
 
-VerticaDialect.get_view_definition = get_view_definition
-# VerticaDialect.get_columns = get_columns
-VerticaDialect._get_column_info = _get_column_info
 
+
+
+VerticaDialect.get_view_definition = get_view_definition
+VerticaDialect.get_columns = get_columns
+VerticaDialect._get_column_info = _get_column_info
 
 class VerticaConfig(BasicSQLAlchemyConfig):
     # defaults

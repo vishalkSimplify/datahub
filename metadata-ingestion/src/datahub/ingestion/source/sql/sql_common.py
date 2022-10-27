@@ -872,7 +872,9 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
         extra_tags = self.get_extra_tags(inspector, schema, table)
         pk_constraints: dict = inspector.get_pk_constraint(table, schema)
+        
         foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, table)
+    
         schema_fields = self.get_schema_fields(
             dataset_name, columns, pk_constraints, tags=extra_tags
         )
