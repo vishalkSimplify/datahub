@@ -1,8 +1,21 @@
 from functools import cache
 import re
 from textwrap import dedent
-from typing import Any, Dict
-
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
+import json
 import pydantic
 from pydantic.class_validators import validator
 from sqlalchemy import sql, util
@@ -19,10 +32,24 @@ from datahub.ingestion.api.decorators import (
     platform_name,
     support_status,
 )
+from datahub.metadata.com.linkedin.pegasus2avro.schema import (
+    DateTypeClass,
+    NullTypeClass,
+    NumberTypeClass,
+    SchemaField,
+    TimeTypeClass,
+)
+
 from datahub.ingestion.source.sql.sql_common import (
     BasicSQLAlchemyConfig,
     SQLAlchemySource,
+
+
+
+
 )
+
+from sqlalchemy.engine import reflection
 from datahub.utilities import config_clean
 
 class UUID(String):
@@ -66,6 +93,8 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
     return view_def
 
 
+
+    
 
 
 
@@ -114,18 +143,44 @@ def get_columns(self, connection, table_name, schema=None, **kw):
                 nullable,
                 schema
                 
-                
-                
-
             )
+
+            # primaryKeys = self.get_pk_constraint(connection, table_name,schema)
             
-            
+            # print("check me",primary_key)
             column_info.update({'primary_key': primary_key})
+           
             columns.append(column_info)
+            
 
            
-    print(columns)
+    
+    
+   
     return columns
+
+def get_pk_constraint(self, connection, table_name, schema: None, **kw):
+    if schema is not None:
+        schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+
+    spk = sql.text(dedent("""
+            SELECT column_name
+            FROM v_catalog.primary_keys
+            WHERE lower(table_name) = '%(table)s'
+            AND constraint_type = 'p'
+            AND %(schema_condition)s
+        """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+
+
+    pk_columns = []
+
+    for row in connection.execute(spk):
+        columns = row['column_name']
+        pk_columns.append(columns)
+    return {'constrained_columns': pk_columns , 'name': pk_columns}
+
 
 
 def _get_column_info(  # noqa: C901
@@ -220,8 +275,9 @@ def _get_column_info(  # noqa: C901
         type=coltype,
         nullable=is_nullable,
         default=default,
-        comment = "owner" + " " + "create_time",
+        comment = "this is a test comment ",
         autoincrement=autoincrement,
+       
     )
 
     return column_info
@@ -233,6 +289,7 @@ def _get_column_info(  # noqa: C901
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
+VerticaDialect.get_pk_constraint = get_pk_constraint
 
 class VerticaConfig(BasicSQLAlchemyConfig):
     # defaults
@@ -250,9 +307,13 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica")
+        super().__init__(config, ctx, "vertica1")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
+
+   
+
+   
