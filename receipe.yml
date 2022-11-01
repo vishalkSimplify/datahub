@@ -2,13 +2,6 @@ source:
   type: vertica
   config:
   #   # # Coordinates
-  #   host_port: 140.236.88.151:5433
-  #   database: PartPub80DB
-
-  #   # Credentials
-  #   username: "datahub_user"
-  #   password: "datahub_22"
-  #   include_views: true
   #   profiling: 
   #     enabled: true
 
