@@ -807,7 +807,14 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
     def get_extra_tags(
         self, inspector: Inspector, schema: str, table: str
     ) -> Optional[Dict[str, List[str]]]:
-        return None
+        try:
+            print("Isnide SQL COmmon  : &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&", schema , table)
+            tags = inspector._get_extra_tags(table, schema)
+            print("FInal Tag : ", tags)
+            return tags
+        except Exception as e:
+            print("Exception : ", e)
+
 
     def _process_table(
         self,
@@ -1014,6 +1021,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         canonical_schema = []
         for column in columns:
             column_tags: Optional[List[str]] = None
+            # print(dataset_name, "#####",column, "----" , tags)
             if tags:
                 column_tags = tags.get(column["name"], [])
             fields = self.get_schema_fields_for_column(
