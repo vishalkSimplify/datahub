@@ -90,8 +90,9 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
             )
         )
     )
+   
 
-    return view_def
+    return  view_def 
 
 
 
@@ -280,36 +281,37 @@ def _get_column_info(  # noqa: C901
 
     return column_info
 
-# def get_foreign_keys(self, connection, table_name, schema=None, **kw):
-#     if schema is not None:
-#         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
-#     else:
-#         schema_condition = "1"
 
-#     sfk = sql.text(dedent("""
-#             SELECT column_name
-#             FROM v_catalog.foreign_keys
-#             WHERE lower(table_name) = '%(table)s'
-#             AND constraint_type = 'f'
-#             AND %(schema_condition)s
-#         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
-
-#     fk_columns = []
-#     for row in connection.execute(sfk):
-#         columns = row['column_name']
-#         fk_columns.append(columns)
-
-#     print(fk_columns)
-#     return {'constrained_columns': fk_columns , 'name': fk_columns}
-
+def get_table_comment(self, connection, table_name, schema=None, **kw):
+     
+        if schema is not None:
+            schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
+        else:
+            schema_condition = "1"
+        
+        sct = sql.text(dedent("""
+            SELECT create_time , table_name
+            FROM v_catalog.tables
+            WHERE lower(table_name) = '%(table)s'
+            AND %(schema_condition)s
+            UNION ALL
+            SELECT create_time , table_name
+            FROM V_CATALOG.VIEWS
+            WHERE lower(table_name) = '%(table)s'
+            AND %(schema_condition)s
+            
+           
+        """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+        
+        for row in connection.execute(sct):
+            columns = row['create_time']
+        
+        
+        return {"text": "This Vertica module is still is development Process", "properties":{"create_time":str(columns)}}
 
 def _get_extra_tags(
         self, connection, table, schema=None
     ) -> Optional[Dict[str, List[str]]]:
-        print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ VErTICA")
-        # print(connection)
-        # print(table)
-        # print(schema)
         
         if schema is not None:
             schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
@@ -323,17 +325,13 @@ def _get_extra_tags(
         AND %(schema_condition)s
         """ % {'table': table.lower(), 'schema_condition': schema_condition}))
 
-        # print(table_owner_command)
         
-        table_owner_res = connection.execute(table_owner_command)
-        # print(table_owner_res)
+        table_owner_res = connection.execute(table_owner_command)    
         
         owner_name = None
         for every in table_owner_res:
             owner_name = every[1]
-            print(every[1])
-            print(every)
-        
+          
         s = sql.text(dedent("""
             SELECT column_name, data_type, column_default,is_nullable
             FROM v_catalog.columns
@@ -348,18 +346,39 @@ def _get_extra_tags(
 
         final_tags = dict()
         for row in connection.execute(s):
-            print(row)
-            print(row.column_name)
             final_tags[row.column_name] = [owner_name]
 
         return final_tags
+
+
+# def get_ownership(
+#         self, looker_dashboard: LookerDashboard
+#     ) -> Optional[OwnershipClass]:
+#         print("-"*60)
+#         print("Inside VERTICA ONE OUT S I D E")
+#         if looker_dashboard.owner is not None:
+#             owner_urn = looker_dashboard.owner.get_urn(
+#                 self.source_config.strip_user_ids_from_email
+#             )
+#             if owner_urn is not None:
+#                 ownership: OwnershipClass = OwnershipClass(
+#                     owners=[
+#                         OwnerClass(
+#                             owner=owner_urn,
+#                             type=OwnershipTypeClass.DATAOWNER,
+#                         )
+#                     ]
+#                 )
+#                 return ownership
+#         return None
 
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
 VerticaDialect.get_pk_constraint = get_pk_constraint
 VerticaDialect._get_extra_tags = _get_extra_tags
-# VerticaDialect.get_foreign_keys = get_foreign_keys
+VerticaDialect.get_table_comment = get_table_comment
+
 
 class VerticaConfig(BasicSQLAlchemyConfig):
     # defaults
@@ -377,41 +396,12 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica1")
+        super().__init__(config, ctx, "vertica2")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
-
-    # def get_extra_tags(
-    #     self, inspector: Inspector, schema: str, table: str
-    # ) -> Optional[Dict[str, List[str]]]:
-    #     print("Inside get extra tags-------------------------- #################### $$$$$$$$$$$$$$$$$$ VErTICA")
-    #     print(inspector)
-    #     print(schema)
-    #     print(table)
-
-    #     if schema is not None:
-    #         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
-    #     else:
-    #         schema_condition = "1"
-
-    #     s = sql.text(dedent("""
-    #     SELECT column_name, data_type, column_default,is_nullable
-    #     FROM v_catalog.columns
-    #     WHERE lower(table_name) = '%(table)s'
-    #     AND %(schema_condition)s
-    #     UNION ALL
-    #     SELECT column_name, data_type, '' as column_default, true as is_nullable
-    #     FROM v_catalog.view_columns
-    #     WHERE lower(table_name) = '%(table)s'
-    #     AND %(schema_condition)s
-    #     """ % {'table': table.lower(), 'schema_condition': schema_condition}))
-
-    #     print(s)
-
-    #     return {"customer_key":["something", "tag1"], "customer_name": ["Tag2", "Tag3"] }
    
 
     

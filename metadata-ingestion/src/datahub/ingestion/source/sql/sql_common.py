@@ -808,9 +808,9 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         self, inspector: Inspector, schema: str, table: str
     ) -> Optional[Dict[str, List[str]]]:
         try:
-            print("Isnide SQL COmmon  : &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&", schema , table)
+            # print("Isnide SQL COmmon  : &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&", schema , table)
             tags = inspector._get_extra_tags(table, schema)
-            print("FInal Tag : ", tags)
+            # print("FInal Tag : ", tags)
             return tags
         except Exception as e:
             print("Exception : ", e)
@@ -1133,10 +1133,12 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 # Some dialects return a TextClause instead of a raw string,
                 # so we need to convert them to a string.
                 view_definition = str(view_definition)
+   
         except NotImplementedError:
             view_definition = ""
         properties["view_definition"] = view_definition
         properties["is_view"] = "True"
+       
         dataset_urn = make_dataset_urn_with_platform_instance(
             self.platform,
             dataset_name,

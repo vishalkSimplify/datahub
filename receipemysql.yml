@@ -1,0 +1,41 @@
+source:
+  type: mysql
+  config:
+    # Coordinates
+    host_port: 159.65.154.238:3306
+    database: keycloak
+
+    # Credentials
+    username: keycloak
+    password: password
+
+
+
+sink:
+  # sink configs
+  type: 'datahub-rest'
+  config:
+    server: 'http://localhost:8080'
+
+# transformers:
+#   - type: "simple_add_dataset_ownership"
+#     config:
+#       owner_urns:
+#         - "urn:li:corpuser:dbadmin"
+#       ownership_type: "PRODUCER"
+#transformers:
+      # - type: "simple_add_dataset_domain"
+      #   config:
+      #     semantics: OVERWRITE
+      #     domains:
+      #       - urn:li:domain:vertica
+      # - type: "simple_add_dataset_ownership"
+      #   config:
+      #     owner_urns:
+      #       - "urn:li:corpuser:dbadmin"
+      #     ownership_type: "PRODUCER"
+      # - type: simple_add_dataset_tags
+      #   config:
+      #     tag_urns:
+      #       - "urn:li:tag:test"
+      
