@@ -12,33 +12,33 @@ source:
     username: "dbadmin"
     password: ""
     include_views: true
-    profiling: 
-      enabled: true
-      limit: null
-      offset: null
-      report_dropped_profiles: true
-      turn_off_expensive_profiling_metrics: true
-      profile_table_level_only: false
-      include_field_null_count: true
-      include_field_min_value: true
-      include_field_max_value: true
-      include_field_mean_value: true
-      include_field_median_value: true
-      include_field_stddev_value: true
-      include_field_quantiles: true
-      include_field_distinct_value_frequencies: true
-      include_field_histogram: true
-      include_field_sample_values: true
-      max_number_of_fields_to_profile: null
-      profile_if_updated_since_days: 1
-      profile_table_size_limit: 1
-      profile_table_row_limit: 50000
-      max_workers: 10
-      query_combiner_enabled: true
-      catch_exceptions: true
-      partition_profiling_enabled: true
-      bigquery_temp_table_schema: null
-      partition_datetime: null
+    # profiling: 
+    #   enabled: true
+      # limit: null
+      # offset: null
+      # report_dropped_profiles: true
+      # turn_off_expensive_profiling_metrics: true
+      # profile_table_level_only: false
+      # include_field_null_count: true
+      # include_field_min_value: true
+      # include_field_max_value: true
+      # include_field_mean_value: true
+      # include_field_median_value: true
+      # include_field_stddev_value: true
+      # include_field_quantiles: true
+      # include_field_distinct_value_frequencies: true
+      # include_field_histogram: true
+      # include_field_sample_values: true
+      # max_number_of_fields_to_profile: null
+      # profile_if_updated_since_days: 1
+      # profile_table_size_limit: 1
+      # profile_table_row_limit: 50000
+      # max_workers: 10
+      # query_combiner_enabled: true
+      # catch_exceptions: true
+      # partition_profiling_enabled: true
+      # bigquery_temp_table_schema: null
+      # partition_datetime: null
       
     
       

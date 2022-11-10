@@ -1,5 +1,6 @@
 from functools import cache
 import re
+import math
 from textwrap import dedent
 from typing import (
     TYPE_CHECKING,
@@ -106,6 +107,9 @@ def get_columns(self, connection, table_name, schema=None, **kw):
     else:
         schema_condition = "1"
 
+    print("%^&"*80)
+    print("table_name  : ", table_name)
+    print("schema : ", schema)
     s = sql.text(dedent("""
         SELECT column_name, data_type, column_default,is_nullable
         FROM v_catalog.columns
@@ -115,6 +119,11 @@ def get_columns(self, connection, table_name, schema=None, **kw):
         SELECT column_name, data_type, '' as column_default, true as is_nullable
         FROM v_catalog.view_columns
         WHERE lower(table_name) = '%(table)s'
+        AND %(schema_condition)s
+        UNION ALL
+        SELECT projection_column_name, data_type, '' as column_default, true as is_nullable
+        FROM v_catalog.projection_columns
+        WHERE lower(projection_name) = '%(table)s'
         AND %(schema_condition)s
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
 
@@ -149,10 +158,38 @@ def get_columns(self, connection, table_name, schema=None, **kw):
 
             # primaryKeys = self.get_pk_constraint(connection, table_name,schema)
             
-            # print("check me",primary_key)
+            print("check me",row)
             column_info.update({'primary_key': primary_key})
            
             columns.append(column_info)
+            
+    return columns
+
+def get_projection(self, connection, projection_name, schema=None, **kw):
+    if schema is not None:
+        schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+    
+    
+    print("get projection got called vertica.py file",projection_name)
+
+    s = sql.text(dedent("""
+        SELECT projection_name
+        FROM v_catalog.projections
+        WHERE lower(projection_name) = '%(projection)s'
+        AND %(schema_condition)s
+        """ % {'projection': projection_name.lower(), 'schema_condition': schema_condition}))
+
+    
+
+
+  
+    
+    columns = []
+    for row in connection.execute(s):
+        columns.append(row)
+        
             
     return columns
 
@@ -274,7 +311,7 @@ def _get_column_info(  # noqa: C901
         type=coltype,
         nullable=is_nullable,
         default=default,
-        comment = "this is a test comment ",
+        comment = default,
         autoincrement=autoincrement,
        
     )
@@ -300,14 +337,25 @@ def get_table_comment(self, connection, table_name, schema=None, **kw):
             WHERE lower(table_name) = '%(table)s'
             AND %(schema_condition)s
             
-           
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
         
-        for row in connection.execute(sct):
-            columns = row['create_time']
+        sts = sql.text(dedent("""
+            SELECT ROUND(SUM(used_bytes) / 1024 ) AS table_size
+            FROM v_monitor.column_storage
+            WHERE lower(anchor_table_name) = '%(table)s'
+            
+        """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+        columns = ""
+        for column in connection.execute(sct):
+            columns = column['create_time']
+           
+        for table_size in connection.execute(sts):
+            if table_size[0] is None:
+                TableSize = 0
+            else:  
+                TableSize = math.trunc(table_size['table_size'])
         
-        
-        return {"text": "This Vertica module is still is development Process", "properties":{"create_time":str(columns)}}
+        return {"text": "This Vertica module is still is development Process", "properties":{"create_time":str(columns),"Total_Table_Size":str(TableSize) + " KB"}}
 
 def _get_extra_tags(
         self, connection, table, schema=None
@@ -377,6 +425,7 @@ VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
 VerticaDialect.get_pk_constraint = get_pk_constraint
 VerticaDialect._get_extra_tags = _get_extra_tags
+VerticaDialect.get_projection=get_projection
 VerticaDialect.get_table_comment = get_table_comment
 
 
