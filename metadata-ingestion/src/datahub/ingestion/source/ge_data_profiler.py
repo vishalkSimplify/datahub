@@ -649,7 +649,8 @@ class DatahubGEProfiler:
     config: GEProfilingConfig
     times_taken: List[float]
     total_row_count: int
-
+    flag: int
+    
     base_engine: Engine
     platform: str  # passed from parent source config
 
@@ -667,6 +668,7 @@ class DatahubGEProfiler:
         self.config = config
         self.times_taken = []
         self.total_row_count = 0
+        self.flag = 0
 
         # TRICKY: The call to `.engine` is quite important here. Connection.connect()
         # returns a "branched" connection, which does not actually use a new underlying
@@ -853,6 +855,22 @@ class DatahubGEProfiler:
         logger.debug(
             f"Received single profile request for {pretty_name} for {schema}, {table}, {custom_sql}"
         )
+        
+        
+        if self.flag ==0:
+            import traceback
+            self.flag += 1
+            template = (
+                '{frame.filename}:{frame.lineno}:{frame.name}:\n'
+                '    {frame.line}'
+            )
+            summary = traceback.StackSummary.extract(
+                traceback.walk_stack(None)
+            )
+            # for frame in summary:
+            #     print("*7&"*30)
+            #     print(template.format(frame=frame))
+                
         bigquery_temp_table: Optional[str] = None
 
         ge_config = {

@@ -12,8 +12,9 @@ source:
     username: "dbadmin"
     password: ""
     include_views: true
-    # profiling: 
-    #   enabled: true
+    include_projections: true
+    profiling: 
+      enabled: true
       # limit: null
       # offset: null
       # report_dropped_profiles: true
@@ -29,7 +30,7 @@ source:
       # include_field_distinct_value_frequencies: true
       # include_field_histogram: true
       # include_field_sample_values: true
-      # max_number_of_fields_to_profile: null
+      # max_number_of_fields_to_profile: 20
       # profile_if_updated_since_days: 1
       # profile_table_size_limit: 1
       # profile_table_row_limit: 50000

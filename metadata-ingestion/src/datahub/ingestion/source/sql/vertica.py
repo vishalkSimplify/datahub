@@ -107,9 +107,6 @@ def get_columns(self, connection, table_name, schema=None, **kw):
     else:
         schema_condition = "1"
 
-    print("%^&"*80)
-    print("table_name  : ", table_name)
-    print("schema : ", schema)
     s = sql.text(dedent("""
         SELECT column_name, data_type, column_default,is_nullable
         FROM v_catalog.columns
@@ -152,13 +149,15 @@ def get_columns(self, connection, table_name, schema=None, **kw):
                 dtype,
                 default,
                 nullable,
-                schema
-                
-            )
+                schema)
+             
 
+
+  
+    
             # primaryKeys = self.get_pk_constraint(connection, table_name,schema)
             
-            print("check me",row)
+            
             column_info.update({'primary_key': primary_key})
            
             columns.append(column_info)
@@ -171,8 +170,6 @@ def get_projection(self, connection, projection_name, schema=None, **kw):
     else:
         schema_condition = "1"
     
-    
-    print("get projection got called vertica.py file",projection_name)
 
     s = sql.text(dedent("""
         SELECT projection_name
@@ -181,11 +178,7 @@ def get_projection(self, connection, projection_name, schema=None, **kw):
         AND %(schema_condition)s
         """ % {'projection': projection_name.lower(), 'schema_condition': schema_condition}))
 
-    
 
-
-  
-    
     columns = []
     for row in connection.execute(s):
         columns.append(row)
@@ -345,9 +338,19 @@ def get_table_comment(self, connection, table_name, schema=None, **kw):
             WHERE lower(anchor_table_name) = '%(table)s'
             
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+        
+        # src = sql.text(dedent("""
+        #     SELECT ros_count 
+        #     FROM v_monitor.projection_storage
+        #     WHERE lower(anchor_table_name) = '%(table)s'
+        # """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
         columns = ""
         for column in connection.execute(sct):
             columns = column['create_time']
+        
+        # ros_count = ""
+        # for data in connection.execute(src):
+        #     ros_count = data['ros_count']
            
         for table_size in connection.execute(sts):
             if table_size[0] is None:
@@ -357,6 +360,81 @@ def get_table_comment(self, connection, table_name, schema=None, **kw):
         
         return {"text": "This Vertica module is still is development Process", "properties":{"create_time":str(columns),"Total_Table_Size":str(TableSize) + " KB"}}
 
+
+
+def get_projection_comment(self, connection,projection_name, schema=None, **kw):
+    if schema is not None:
+        schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+    
+    
+        
+    src = sql.text(dedent("""
+            SELECT ros_count 
+            FROM v_monitor.projection_storage
+            WHERE lower(projection_name) = '%(table)s'
+
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    
+    sig = sql.text(dedent("""
+            SELECT true as is_segmented 
+            FROM v_catalog.projections 
+            WHERE lower(projection_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    # spk =  sql.text(dedent("""
+    #         SELECT partition_key; 
+    #         FROM v_monitor.partitions
+    #         WHERE lower(projection_name) = '%(table)s'
+    #     """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    spt = sql.text(dedent("""
+            SELECT true as is_super_projection,true as is_key_constraint_projection,true as is_aggregate_projection,true as is_shared
+            FROM v_catalog.projections 
+            WHERE lower(projection_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    # snp = sql.text(dedent("""
+    #         COUNT(ros_id)
+    #         FROM v_monitor.partitions
+    #         WHERE projection_name = '%(table)s'
+    #     """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    ros_count = ""
+    partition_key = ""
+    is_segmented = ""
+    projection_type= ""
+    partition_key = ""
+    for data in connection.execute(sig):
+        is_segmented = data['is_segmented']
+       
+        
+    for data in connection.execute(src):
+        ros_count = data['ros_count']
+        
+    # for data in connection.execute(spk):
+    #     partition_key = data['partition_key']
+    #     print(partition_key)
+
+    for data in connection.execute(spt):
+        if data['is_super_projection']:
+            projection_type = "is_super_projection"
+        elif data['is_key_constraint_projection']:
+            projection_type = "is_key_constraint_projection"
+        elif data["is_aggregate_projection"]:
+            projection_type = "is_aggregate_projection"
+        elif data["is_shared"]:
+            projection_type = "is_shared"
+                                  
+    # for data in connection.execute(snp):
+    #     partition_key = data['ros_id']
+                                  
+    #     print(partition_key)
+             
+            
+    return {"text": "This Vertica module is still is development Process",  "properties":{"ROS Count":str(ros_count),"is_segmented":str(is_segmented),"Projection Type":str(projection_type)}}
+    
 def _get_extra_tags(
         self, connection, table, schema=None
     ) -> Optional[Dict[str, List[str]]]:
@@ -427,6 +505,7 @@ VerticaDialect.get_pk_constraint = get_pk_constraint
 VerticaDialect._get_extra_tags = _get_extra_tags
 VerticaDialect.get_projection=get_projection
 VerticaDialect.get_table_comment = get_table_comment
+VerticaDialect.get_projection_comment = get_projection_comment
 
 
 class VerticaConfig(BasicSQLAlchemyConfig):
@@ -445,7 +524,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica2")
+        super().__init__(config, ctx, "vertica_vishal")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
