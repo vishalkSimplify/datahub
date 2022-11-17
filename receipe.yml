@@ -4,17 +4,24 @@ source:
   #   # # Coordinates
  
 
-    # Coordinates
+    #Coordinates
     host_port: localhost:5433
     database: Vmart
 
     # Credentials
     username: "dbadmin"
     password: ""
+
+    # host_port: 140.236.88.151:5433
+    # database: PartPub80DB
+
+    # # Credentials
+    # username: "datahub2_user"
+    # password: "datahub2_22"
     include_views: true
     include_projections: true
-    profiling: 
-      enabled: true
+    # profiling: 
+    #   enabled: true
       # limit: null
       # offset: null
       # report_dropped_profiles: true
@@ -40,8 +47,6 @@ source:
       # partition_profiling_enabled: true
       # bigquery_temp_table_schema: null
       # partition_datetime: null
-      
-    
       
     
 

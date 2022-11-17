@@ -49,6 +49,14 @@ from datahub.ingestion.source.sql.sql_common import (
 
 
 )
+from datahub.emitter.mcp_builder import (
+    DatabaseKey,
+    PlatformKey,
+    SchemaKey,
+    add_dataset_to_container,
+    add_domain_to_entity_wu,
+    gen_containers,
+)
 
 from sqlalchemy.engine import reflection
 from sqlalchemy.engine.reflection import Inspector
@@ -177,7 +185,6 @@ def get_projection(self, connection, projection_name, schema=None, **kw):
         WHERE lower(projection_name) = '%(projection)s'
         AND %(schema_condition)s
         """ % {'projection': projection_name.lower(), 'schema_condition': schema_condition}))
-
 
     columns = []
     for row in connection.execute(s):
@@ -379,43 +386,64 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
     
     
     sig = sql.text(dedent("""
-            SELECT true as is_segmented 
+            SELECT is_segmented 
             FROM v_catalog.projections 
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
     
-    # spk =  sql.text(dedent("""
-    #         SELECT partition_key; 
-    #         FROM v_monitor.partitions
-    #         WHERE lower(projection_name) = '%(table)s'
-    #     """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    spk =  sql.text(dedent("""
+            SELECT   partition_key
+            FROM v_monitor.partitions
+            WHERE lower(projection_name) = '%(table)s'
+            LIMIT 1
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
     
     spt = sql.text(dedent("""
-            SELECT true as is_super_projection,true as is_key_constraint_projection,true as is_aggregate_projection,true as is_shared
-            FROM v_catalog.projections 
+            SELECT is_super_projection,is_key_constraint_projection,is_aggregate_projection,is_shared
+            FROM v_catalog.projections
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
     
-    # snp = sql.text(dedent("""
-    #         COUNT(ros_id)
-    #         FROM v_monitor.partitions
-    #         WHERE projection_name = '%(table)s'
-    #     """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    snp = sql.text(dedent("""
+            SELECT Count(ros_id) as np
+            FROM v_monitor.partitions
+            WHERE lower(projection_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    ssk = sql.text(dedent("""
+            SELECT  segment_expression 
+            FROM v_catalog.projections
+            WHERE lower(projection_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
+    sps = sql.text(dedent("""
+            SELECT ROUND(used_bytes // 1024)   AS used_bytes 
+            from v_monitor.projection_storage
+            WHERE lower(projection_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
     ros_count = ""
     partition_key = ""
     is_segmented = ""
     projection_type= ""
-    partition_key = ""
+    partition_number = ""
+    segmentation_key = ""
+    projection_size = ""
+    
     for data in connection.execute(sig):
         is_segmented = data['is_segmented']
+        if is_segmented :
+            for data in connection.execute(ssk):
+                segmentation_key = str(data)
+            
        
         
     for data in connection.execute(src):
         ros_count = data['ros_count']
         
-    # for data in connection.execute(spk):
-    #     partition_key = data['partition_key']
-    #     print(partition_key)
+    for data in connection.execute(spk):
+        partition_key = data['partition_key']
+       
 
     for data in connection.execute(spt):
         if data['is_super_projection']:
@@ -426,14 +454,23 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
             projection_type = "is_aggregate_projection"
         elif data["is_shared"]:
             projection_type = "is_shared"
-                                  
-    # for data in connection.execute(snp):
-    #     partition_key = data['ros_id']
-                                  
-    #     print(partition_key)
-             
             
-    return {"text": "This Vertica module is still is development Process",  "properties":{"ROS Count":str(ros_count),"is_segmented":str(is_segmented),"Projection Type":str(projection_type)}}
+            
+    for data in connection.execute(snp):
+        partition_number = data.np
+       
+        
+    for data in connection.execute(sps):
+        projection_size = data['used_bytes'] 
+      
+  
+        
+    return {"text": "This Vertica module is still is development Process for Projections",  
+            "properties":{"ROS Count":str(ros_count),"is_segmented":str(is_segmented),
+                          "Projection Type":str(projection_type),"Partition Key":str(partition_key),
+                          "Number of Partition" : str(partition_number),
+                          "Segmentation_key":segmentation_key,
+                          "Projection SIze":str(projection_size)+ " KB"}}
     
 def _get_extra_tags(
         self, connection, table, schema=None
@@ -447,6 +484,11 @@ def _get_extra_tags(
         table_owner_command = s = sql.text(dedent("""
         SELECT table_name, owner_name
         FROM v_catalog.tables
+        WHERE lower(table_name) = '%(table)s'
+        AND %(schema_condition)s
+        UNION ALL
+        SELECT table_name, owner_name
+        FROM v_catalog.views
         WHERE lower(table_name) = '%(table)s'
         AND %(schema_condition)s
         """ % {'table': table.lower(), 'schema_condition': schema_condition}))
@@ -477,26 +519,6 @@ def _get_extra_tags(
         return final_tags
 
 
-# def get_ownership(
-#         self, looker_dashboard: LookerDashboard
-#     ) -> Optional[OwnershipClass]:
-#         print("-"*60)
-#         print("Inside VERTICA ONE OUT S I D E")
-#         if looker_dashboard.owner is not None:
-#             owner_urn = looker_dashboard.owner.get_urn(
-#                 self.source_config.strip_user_ids_from_email
-#             )
-#             if owner_urn is not None:
-#                 ownership: OwnershipClass = OwnershipClass(
-#                     owners=[
-#                         OwnerClass(
-#                             owner=owner_urn,
-#                             type=OwnershipTypeClass.DATAOWNER,
-#                         )
-#                     ]
-#                 )
-#                 return ownership
-#         return None
 
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
@@ -524,12 +546,23 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_vishal")
+        super().__init__(config, ctx, "vertica_demo1")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
    
+    # def gen_schema_key(self,db_name: str, schema: str) -> PlatformKey:
+    #     return SchemaKey(
+    #         database=db_name,
+    #         schema=schema,
+    #         platform=self.platform,
+    #         noofprojection="not coming for now",
+    #         instance=self.config.platform_instance,
+            
+    #         backcompat_instance_for_guid=self.config.env,
+    #     )
+
 
     

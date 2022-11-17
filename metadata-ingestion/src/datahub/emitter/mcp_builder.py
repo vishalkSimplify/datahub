@@ -53,8 +53,11 @@ class DatahubKey(BaseModel):
 
 
 class PlatformKey(DatahubKey):
+    
     platform: str
     instance: Optional[str] = None
+    noofprojection: Optional[str] = None
+    
 
     # BUG: In some of our sources, we incorrectly set the platform instance
     # to the env if no platform instance was specified. Now, we have to maintain

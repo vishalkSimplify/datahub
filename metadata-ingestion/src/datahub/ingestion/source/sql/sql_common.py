@@ -573,11 +573,13 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         return f"{self.platform}_{host_port}_{database}"
 
     def gen_schema_key(self, db_name: str, schema: str) -> PlatformKey:
+       
         return SchemaKey(
             database=db_name,
             schema=schema,
             platform=self.platform,
             instance=self.config.platform_instance,
+            
             backcompat_instance_for_guid=self.config.env,
         )
 
@@ -1346,7 +1348,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             )
             schema_metadata = None
         else:
-            schema_fields = self.get_schema_fields(dataset_name, columns)
+            extra_tags = self.get_extra_tags(inspector, schema, view)
+            schema_fields = self.get_schema_fields(dataset_name, columns, tags=extra_tags)
             schema_metadata = get_schema_metadata(
                 self.report,
                 dataset_name,
