@@ -12,12 +12,7 @@ source:
     username: "dbadmin"
     password: ""
 
-    # host_port: 140.236.88.151:5433
-    # database: PartPub80DB
 
-    # # # Credentials
-    # username: "datahub2_user"
-    # password: "datahub2_22"
     include_views: false
     include_projections: true
     # profiling: 
