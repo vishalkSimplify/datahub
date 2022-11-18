@@ -695,6 +695,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                     # loop_profiler_requests_for_projections
                     # print("==="*70)
                     # print(profile_requests)
+                    #
 
             if profiler and profile_requests:
                 yield from self.loop_profiler(
