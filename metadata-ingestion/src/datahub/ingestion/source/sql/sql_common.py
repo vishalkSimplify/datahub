@@ -622,6 +622,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
     def gen_schema_containers(
         self, schema: str, db_name: str
     ) -> Iterable[MetadataWorkUnit]:
+        print("gen_schema_containers -------->>>>>>>>>>>>>")
         schema_container_key = self.gen_schema_key(db_name, schema)
 
         database_container_key: Optional[PlatformKey] = None
