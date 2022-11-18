@@ -573,15 +573,28 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         return f"{self.platform}_{host_port}_{database}"
 
     def gen_schema_key(self, db_name: str, schema: str) -> PlatformKey:
-       
-        return SchemaKey(
-            database=db_name,
-            schema=schema,
-            platform=self.platform,
-            instance=self.config.platform_instance,
-            
-            backcompat_instance_for_guid=self.config.env,
-        )
+        try:
+            all_schema_keys = dict()
+            for inspector in self.get_inspectors():
+                print("^^^"*80)
+                all_schema_keys = inspector._get_schema_keys(db_name , schema)
+          
+            return SchemaKey(
+                database=db_name,
+                schema=schema,
+                platform=self.platform,
+                instance=self.config.platform_instance,
+                numberOfProjection = all_schema_keys.get("projection_count", ""),
+                clusterType = all_schema_keys.get("cluster_type", ""),
+                clusterSize = all_schema_keys.get("cluster_size", ""),
+                subClusterCount = all_schema_keys.get("Subcluster", ""),
+                
+                # udxsFunctions = all_schema_keys.get("udx_list", []),
+                backcompat_instance_for_guid=self.config.env,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            print("Hey something went wrong, while gettting schema in sql common")
 
     def gen_database_key(self, database: str) -> PlatformKey:
         return DatabaseKey(

@@ -56,7 +56,6 @@ class PlatformKey(DatahubKey):
     
     platform: str
     instance: Optional[str] = None
-    noofprojection: Optional[str] = None
     
 
     # BUG: In some of our sources, we incorrectly set the platform instance
@@ -87,7 +86,15 @@ class DatabaseKey(PlatformKey):
 
 class SchemaKey(DatabaseKey):
     db_schema: str = Field(alias="schema")
+    numberOfProjection: Optional[str]
+    
+    # cluster related data
+    clusterType : Optional[str] =  None
+    clusterSize : Optional[str] = None
+    subClusterCount : Optional[str] = None
 
+    udxsFunctions : List[str] = None
+    UDXsLanguage : Optional[str] = None
 
 class ProjectIdKey(PlatformKey):
     project_id: str

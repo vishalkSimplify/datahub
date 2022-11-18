@@ -519,6 +519,90 @@ def _get_extra_tags(
         return final_tags
 
 
+def _get_schema_keys(self, connection, db_name, schema) -> dict:
+    try:
+        
+        if schema is not None:
+            schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
+        
+        # Projection count
+        projection_count_query = sql.text(dedent("""
+            SELECT 
+                COUNT(projection_name)  as pc
+            from 
+                v_catalog.projections 
+            WHERE lower(projection_schema) = '%(schema)s'
+        """ % {'schema_condition': schema_condition, "schema":schema}))
+        
+        projection_count = None
+        for each in connection.execute(projection_count_query):
+            projection_count = each.pc
+            
+            
+        # Query for CLUSTER TYPE
+        cluster_type_qry = sql.text(dedent("""
+            SELECT 
+            CASE COUNT(*) 
+                WHEN 0 
+                THEN 'Enterprise' 
+                ELSE 'Eon' 
+            END AS database_mode 
+            FROM v_catalog.shards
+        """ % {'schema_condition': schema_condition}))
+        
+        cluster_type = ""
+        cluster_type_res = connection.execute(cluster_type_qry)   
+        for each in cluster_type_res:
+           
+            cluster_type = each.database_mode
+        
+        # CLUSTER SIZE
+        cluster_size_qry = sql.text(dedent("""
+            SELECT 
+                host_name,
+                processor_count,
+                processor_core_count,
+                processor_description,
+                ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
+            FROM V_MONITOR.HOST_RESOURCES
+        """ % {'schema_condition': schema_condition}))
+        
+        cluster_size = ""
+        for each in connection.execute(cluster_size_qry):
+            cluster_size = str(each.total_memory_gbytes) + " GB"
+            
+        
+        
+        # UDX list
+        UDX_functions_qry = sql.text(dedent("""
+            SELECT 
+                function_name 
+            FROM 
+                USER_FUNCTIONS
+            Where schema_name  = '%(schema)s'
+        """ % {'schema': schema, 'schema_condition': schema_condition}))
+        udx_list = list()
+        for each in connection.execute(UDX_functions_qry):
+            # print(each)
+            udx_list.append(each.function_name)
+        
+        subclusters = ""
+        SUBCLUSTER_QUERY = sql.text(dedent("""
+            SELECT 
+                COUNT(*) as nsc
+            FROM 
+                subclusters
+        """ % {'schema': schema, 'schema_condition': schema_condition}))
+        
+        for data in connection.execute(SUBCLUSTER_QUERY):
+            subclusters = data.nsc
+        
+        return {"projection_count": projection_count,
+                "cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
+                'udx_list': udx_list }
+        
+    except Exception as e:
+        print("Exception in _get_schema_keys from vertica ")
 
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
@@ -528,7 +612,7 @@ VerticaDialect._get_extra_tags = _get_extra_tags
 VerticaDialect.get_projection=get_projection
 VerticaDialect.get_table_comment = get_table_comment
 VerticaDialect.get_projection_comment = get_projection_comment
-
+VerticaDialect._get_schema_keys = _get_schema_keys
 
 class VerticaConfig(BasicSQLAlchemyConfig):
     # defaults
@@ -546,7 +630,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_demo1")
+        super().__init__(config, ctx, "vertica_EON")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
@@ -554,15 +638,17 @@ class VerticaSource(SQLAlchemySource):
         return cls(config, ctx)
    
     # def gen_schema_key(self,db_name: str, schema: str) -> PlatformKey:
+    #     print("AAA"*40)
     #     return SchemaKey(
     #         database=db_name,
     #         schema=schema,
     #         platform=self.platform,
+    #         name = "Thakur",
     #         noofprojection="not coming for now",
     #         instance=self.config.platform_instance,
             
     #         backcompat_instance_for_guid=self.config.env,
-    #     )
+        # )
 
 
     
