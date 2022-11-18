@@ -2,12 +2,12 @@ source:
   type: mysql
   config:
     # Coordinates
-    host_port: 159.65.154.238:3306
-    database: keycloak
+    host_port: ""
+    database: ""
 
     # Credentials
-    username: keycloak
-    password: password
+    username: ""
+    password: ""
 
 
 
