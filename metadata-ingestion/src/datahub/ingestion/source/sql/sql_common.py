@@ -576,7 +576,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         try:
             all_schema_keys = dict()
             for inspector in self.get_inspectors():
-                print("^^^"*80)
+                print("^^^"*50)
                 all_schema_keys = inspector._get_schema_keys(db_name , schema)
           
             return SchemaKey(
@@ -589,13 +589,12 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 clusterSize = all_schema_keys.get("cluster_size", ""),
                 subClusterCount = all_schema_keys.get("Subcluster", ""),
                 
-                # udxsFunctions = all_schema_keys.get("udx_list", []),
+                udxsFunctions = all_schema_keys.get("udx_list", ""),
                 backcompat_instance_for_guid=self.config.env,
             )
         except Exception as e:
             traceback.print_exc()
-            print("Hey something went wrong, while gettting schema in sql common")
-
+            print("Hey something went wrong, while gettting schema in gen schema key")
     def gen_database_key(self, database: str) -> PlatformKey:
         return DatabaseKey(
             database=database,
@@ -1449,6 +1448,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         )
 
     def get_parent_container_key(self, db_name: str, schema: str) -> PlatformKey:
+        print("From get_parent_container_key  +++++++++++++++++++++++++++++++++++")
         return self.gen_schema_key(db_name, schema)
 
     def add_table_to_schema_container(

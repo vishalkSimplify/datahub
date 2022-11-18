@@ -581,10 +581,11 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
                 USER_FUNCTIONS
             Where schema_name  = '%(schema)s'
         """ % {'schema': schema, 'schema_condition': schema_condition}))
-        udx_list = list()
+        udx_list = ""
         for each in connection.execute(UDX_functions_qry):
             # print(each)
-            udx_list.append(each.function_name)
+            # udx_list.append(each.function_name)
+            udx_list += each.function_name+ ", "
         
         subclusters = ""
         SUBCLUSTER_QUERY = sql.text(dedent("""

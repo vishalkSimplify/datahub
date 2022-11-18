@@ -93,7 +93,7 @@ class SchemaKey(DatabaseKey):
     clusterSize : Optional[str] = None
     subClusterCount : Optional[str] = None
 
-    udxsFunctions : List[str] = None
+    udxsFunctions : Optional[str] = None
     UDXsLanguage : Optional[str] = None
 
 class ProjectIdKey(PlatformKey):
@@ -201,7 +201,7 @@ def gen_containers(
     description: Optional[str] = None,
     owner_urn: Optional[str] = None,
     external_url: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    tags: Optional[List[str]] = ["Hey", "There"],
     qualified_name: Optional[str] = None,
 ) -> Iterable[MetadataWorkUnit]:
     container_urn = make_container_urn(
