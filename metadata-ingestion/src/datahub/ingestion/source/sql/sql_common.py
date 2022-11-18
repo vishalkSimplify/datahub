@@ -1448,7 +1448,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         )
 
     def get_parent_container_key(self, db_name: str, schema: str) -> PlatformKey:
-        print("From get_parent_container_key  +++++++++++++++++++++++++++++++++++")
+        # print("From get_parent_container_key  +++++++++++++++++++++++++++++++++++")
         return self.gen_schema_key(db_name, schema)
 
     def add_table_to_schema_container(
@@ -1604,8 +1604,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 f"Preparing profiling request for {schema}, {projection}, {partition}"
             )
             
-            print(" %^& "*40)
-            print(f"schema name - {schema} PROJECTION - {projection} partition - {partition}, custom_sql is {custom_sql}")
+            # print(" %^& "*40)
+            # print(f"schema name - {schema} PROJECTION - {projection} partition - {partition}, custom_sql is {custom_sql}")
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(
@@ -1703,8 +1703,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 f"Preparing profiling request for {schema}, {table}, {partition}"
             )
             
-            print(" %^& "*40)
-            print(f"schema name - {schema} table - {table} partition - {partition}, custom_sql is {custom_sql}")
+            # print(" %^& "*40)
+            # print(f"schema name - {schema} table - {table} partition - {partition}, custom_sql is {custom_sql}")
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(
