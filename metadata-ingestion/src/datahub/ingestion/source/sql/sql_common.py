@@ -576,7 +576,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         try:
             all_schema_keys = dict()
             for inspector in self.get_inspectors():
-                print("^^^"*50)
+     
                 all_schema_keys = inspector._get_schema_keys(db_name , schema)
           
             return SchemaKey(
@@ -621,7 +621,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
     def gen_schema_containers(
         self, schema: str, db_name: str
     ) -> Iterable[MetadataWorkUnit]:
-        print("gen_schema_containers -------->>>>>>>>>>>>>")
+
         schema_container_key = self.gen_schema_key(db_name, schema)
 
         database_container_key: Optional[PlatformKey] = None
@@ -1448,7 +1448,6 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         )
 
     def get_parent_container_key(self, db_name: str, schema: str) -> PlatformKey:
-        print("From get_parent_container_key  +++++++++++++++++++++++++++++++++++")
         return self.gen_schema_key(db_name, schema)
 
     def add_table_to_schema_container(
@@ -1604,8 +1603,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 f"Preparing profiling request for {schema}, {projection}, {partition}"
             )
             
-            print(" %^& "*40)
-            print(f"schema name - {schema} PROJECTION - {projection} partition - {partition}, custom_sql is {custom_sql}")
+            
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(
@@ -1703,8 +1701,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 f"Preparing profiling request for {schema}, {table}, {partition}"
             )
             
-            print(" %^& "*40)
-            print(f"schema name - {schema} table - {table} partition - {partition}, custom_sql is {custom_sql}")
+           
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(

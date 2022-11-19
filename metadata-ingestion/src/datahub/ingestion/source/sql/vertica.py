@@ -16,6 +16,7 @@ from typing import (
     Union,
     cast,
 )
+
 import json
 import pydantic
 from pydantic.class_validators import validator
@@ -56,6 +57,8 @@ from datahub.emitter.mcp_builder import (
     add_dataset_to_container,
     add_domain_to_entity_wu,
     gen_containers,
+    gen_containers
+
 )
 
 from sqlalchemy.engine import reflection
@@ -108,7 +111,6 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
     
 
 
-
 def get_columns(self, connection, table_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
@@ -144,6 +146,7 @@ def get_columns(self, connection, table_name, schema=None, **kw):
     pk_columns = [x[0] for x in connection.execute(spk)]
     
     columns = []
+    
     for row in connection.execute(s):
             
             name = row.column_name 
@@ -422,13 +425,20 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
     
+    depot_pin_policy = sql.text(dedent("""
+            SELECT COUNT(*)
+            FROM DEPOT_PIN_POLICIES
+            WHERE lower(object_name) = '%(table)s'
+        """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
+    
     ros_count = ""
     partition_key = ""
     is_segmented = ""
-    projection_type= ""
+    projection_type= []
     partition_number = ""
     segmentation_key = ""
     projection_size = ""
+    cached_projection = ""
     
     for data in connection.execute(sig):
         is_segmented = data['is_segmented']
@@ -454,6 +464,10 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
             projection_type = "is_aggregate_projection"
         elif data["is_shared"]:
             projection_type = "is_shared"
+                
+            
+            
+            
             
             
     for data in connection.execute(snp):
@@ -462,6 +476,13 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
         
     for data in connection.execute(sps):
         projection_size = data['used_bytes'] 
+        
+    for data in connection.execute(depot_pin_policy):
+        if data[0] > 0:
+            cached_projection = "True"
+        else:
+            cached_projection = "False"
+        
       
   
         
@@ -470,7 +491,8 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
                           "Projection Type":str(projection_type),"Partition Key":str(partition_key),
                           "Number of Partition" : str(partition_number),
                           "Segmentation_key":segmentation_key,
-                          "Projection SIze":str(projection_size)+ " KB"}}
+                          "Projection SIze":str(projection_size)+ " KB",
+                          "Projection Cached": str(cached_projection)}}
     
 def _get_extra_tags(
         self, connection, table, schema=None
@@ -598,12 +620,17 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
         for data in connection.execute(SUBCLUSTER_QUERY):
             subclusters = data.nsc
         
+        
+        
+        
         return {"projection_count": projection_count,
                 "cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
                 'udx_list': udx_list }
         
     except Exception as e:
         print("Exception in _get_schema_keys from vertica ")
+        
+
 
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
@@ -631,25 +658,13 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_EON")
+        super().__init__(config, ctx, "vertica_community")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
    
-    # def gen_schema_key(self,db_name: str, schema: str) -> PlatformKey:
-    #     print("AAA"*40)
-    #     return SchemaKey(
-    #         database=db_name,
-    #         schema=schema,
-    #         platform=self.platform,
-    #         name = "Thakur",
-    #         noofprojection="not coming for now",
-    #         instance=self.config.platform_instance,
-            
-    #         backcompat_instance_for_guid=self.config.env,
-        # )
 
 
     
