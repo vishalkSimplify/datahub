@@ -5,7 +5,7 @@ source:
  
 
     #Coordinates
-    # host_port: 216.48.176.165:5433
+    # host_port: localhost:5433
     # database: Vmart
 
     # # #Credentials
