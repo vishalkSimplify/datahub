@@ -402,7 +402,7 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
     
     spt = sql.text(dedent("""
-            SELECT is_super_projection,is_key_constraint_projection,is_aggregate_projection,is_shared
+            SELECT is_super_projection,is_key_constraint_projection,is_aggregate_projection,has_expressions
             FROM v_catalog.projections
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
@@ -453,22 +453,19 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
         
     for data in connection.execute(spk):
         partition_key = data['partition_key']
-       
-
+    
     for data in connection.execute(spt):
-        if data['is_super_projection']:
-            projection_type = "is_super_projection"
-        elif data['is_key_constraint_projection']:
-            projection_type = "is_key_constraint_projection"
-        elif data["is_aggregate_projection"]:
-            projection_type = "is_aggregate_projection"
-        elif data["is_shared"]:
-            projection_type = "is_shared"
+        lst = ["is_super_projection","is_key_constraint_projection","is_aggregate_projection","is_shared"]
+       
+        i = 0
+        for d in range(len(data)):
+            if data[i]:
+                projection_type.append(lst[i])
+            i += 1
                 
-            
-            
-            
-            
+                
+
+
             
     for data in connection.execute(snp):
         partition_number = data.np
@@ -572,11 +569,22 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
             FROM v_catalog.shards
         """ % {'schema_condition': schema_condition}))
         
+        communal_storage_path = sql.text(dedent("""
+            SELECT location_path from storage_locations 
+                WHERE sharing_type = 'COMMUNAL'
+        """ % {'schema_condition': schema_condition}))
+        
+        
         cluster_type = ""
+        communical_path =""
         cluster_type_res = connection.execute(cluster_type_qry)   
         for each in cluster_type_res:
            
             cluster_type = each.database_mode
+            if cluster_type.lower() == 'eon':
+                for each in connection.execute(communal_storage_path):
+                    communical_path += str(each.location_path) + " | "
+                
         
         # CLUSTER SIZE
         cluster_size_qry = sql.text(dedent("""
@@ -586,14 +594,27 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
                 processor_core_count,
                 processor_description,
                 ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
-            FROM V_MONITOR.HOST_RESOURCES
+                FROM V_MONITOR.HOST_RESOURCES
         """ % {'schema_condition': schema_condition}))
         
+        cluster__size = sql.text(dedent("""
+            select (SUM(disk_space_used_mb) //1024 ) as cluster_size
+            from disk_storage
+        """ % {'schema_condition': schema_condition}))
+        
+        UDL_LANGUAGE = sql.text(dedent("""
+            SELECT lib_name , description 
+                FROM USER_LIBRARIES
+            WHERE lower(schema_name) = '%(schema)s'
+        """ % {'schema_condition': schema_condition,"schema":schema}))
         cluster_size = ""
         for each in connection.execute(cluster_size_qry):
             cluster_size = str(each.total_memory_gbytes) + " GB"
             
-        
+        # for each in connection.execute(cluster__size):
+          
+        #     cluster__size = str(each[0]) + " GB" 
+        #     print("______________________cluster size",str(each[0]) + " GB" )
         
         # UDX list
         UDX_functions_qry = sql.text(dedent("""
@@ -612,24 +633,29 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
         subclusters = ""
         SUBCLUSTER_QUERY = sql.text(dedent("""
             SELECT 
-                COUNT(*) as nsc
+                subcluster_name
             FROM 
                 subclusters
         """ % {'schema': schema, 'schema_condition': schema_condition}))
         
         for data in connection.execute(SUBCLUSTER_QUERY):
-            subclusters = data.nsc
+            subclusters += str(data.subcluster_name) + " | "
         
+        #UDX Language
         
-        
+        user_defined_library = ""
+        for data in connection.execute(UDL_LANGUAGE):
+            # user_defined_library = {"lib_name": data['lib_name'] , 'language' : data['description']}
+            user_defined_library += f"{data['lib_name']} -- {data['description']} |  "
         
         return {"projection_count": projection_count,
                 "cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
-                'udx_list': udx_list }
+                'udx_list': udx_list ,'Udx_langauge' : user_defined_library ,"communinal_storage_path":communical_path }
         
     except Exception as e:
         print("Exception in _get_schema_keys from vertica ")
         
+
 
 
 VerticaDialect.get_view_definition = get_view_definition
@@ -650,7 +676,6 @@ class VerticaConfig(BasicSQLAlchemyConfig):
     def clean_host_port(cls, v):
         return config_clean.remove_protocol(v)
 
-
 @platform_name("Vertica")
 @config_class(VerticaConfig)
 @support_status(SupportStatus.TESTING)
@@ -658,13 +683,9 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_community")
+        super().__init__(config, ctx, "vertica_demo")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
-   
-
-
-    

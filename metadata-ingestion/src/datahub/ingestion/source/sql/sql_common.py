@@ -41,6 +41,7 @@ from datahub.emitter.mcp_builder import (
     DatabaseKey,
     PlatformKey,
     SchemaKey,
+    
     add_dataset_to_container,
     add_domain_to_entity_wu,
     gen_containers,
@@ -578,18 +579,21 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             for inspector in self.get_inspectors():
      
                 all_schema_keys = inspector._get_schema_keys(db_name , schema)
-          
+
+            
             return SchemaKey(
                 database=db_name,
                 schema=schema,
                 platform=self.platform,
                 instance=self.config.platform_instance,
+                
                 numberOfProjection = all_schema_keys.get("projection_count", ""),
                 clusterType = all_schema_keys.get("cluster_type", ""),
                 clusterSize = all_schema_keys.get("cluster_size", ""),
                 subClusterCount = all_schema_keys.get("Subcluster", ""),
-                
+                communalStoragePath = all_schema_keys.get("communinal_storage_path", ""),
                 udxsFunctions = all_schema_keys.get("udx_list", ""),
+                UDXsLanguage = all_schema_keys.get("Udx_langauge", ""),
                 backcompat_instance_for_guid=self.config.env,
             )
         except Exception as e:
@@ -1766,3 +1770,6 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
     def close(self):
         self.prepare_for_commit()
+        
+        
+

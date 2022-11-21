@@ -92,9 +92,11 @@ class SchemaKey(DatabaseKey):
     clusterType : Optional[str] =  None
     clusterSize : Optional[str] = None
     subClusterCount : Optional[str] = None
-
+    communalStoragePath : Optional[str] = None
+    
     udxsFunctions : Optional[str] = None
     UDXsLanguage : Optional[str] = None
+    
 
 class ProjectIdKey(PlatformKey):
     project_id: str
