@@ -41,6 +41,7 @@ from datahub.emitter.mcp_builder import (
     DatabaseKey,
     PlatformKey,
     SchemaKey,
+    
     add_dataset_to_container,
     add_domain_to_entity_wu,
     gen_containers,
@@ -191,6 +192,7 @@ class SqlContainerSubTypes(str, Enum):
 class SQLSourceReport(StaleEntityRemovalSourceReport):
     tables_scanned: int = 0
     views_scanned: int = 0
+    Projection_scanned: int = 0
     entities_profiled: int = 0
     filtered: LossyList[str] = field(default_factory=LossyList)
 
@@ -204,6 +206,8 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
             self.tables_scanned += 1
         elif ent_type == "view":
             self.views_scanned += 1
+        elif ent_type == "projection":
+            self.Projection_scanned += 1
         else:
             raise KeyError(f"Unknown entity {ent_type}.")
 
@@ -227,7 +231,7 @@ class SQLAlchemyStatefulIngestionConfig(StatefulStaleMetadataRemovalConfig):
     """
 
     _entity_types: List[str] = pydantic.Field(
-        default=["assertion", "container", "table", "view"]
+        default=["assertion", "container", "table", "view","Projection"]
     )
 
 
@@ -244,6 +248,10 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
     table_pattern: AllowDenyPattern = Field(
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns for tables to filter in ingestion. Specify regex to match the entire table name in database.schema.table format. e.g. to match all tables starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
+    )
+    projection_pattern: AllowDenyPattern = Field(
+        default=AllowDenyPattern.allow_all(),
+        description="Regex patterns for projection to filter in ingestion. Specify regex to match the entire table name in database.schema.table format. e.g. to match all tables starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
     )
     view_pattern: AllowDenyPattern = Field(
         default=AllowDenyPattern.allow_all(),
@@ -263,6 +271,9 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
     )
     include_tables: Optional[bool] = Field(
         default=True, description="Whether tables should be ingested."
+    )
+    include_projections: Optional[bool] = Field(
+        default=True, description="Whether projections should be ingested."
     )
 
     profiling: GEProfilingConfig = GEProfilingConfig()
@@ -453,6 +464,7 @@ def get_schema_metadata(
 config_options_to_report = [
     "include_views",
     "include_tables",
+    "include_projections"
 ]
 
 # flags to emit telemetry for
@@ -562,14 +574,31 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         return f"{self.platform}_{host_port}_{database}"
 
     def gen_schema_key(self, db_name: str, schema: str) -> PlatformKey:
-        return SchemaKey(
-            database=db_name,
-            schema=schema,
-            platform=self.platform,
-            instance=self.config.platform_instance,
-            backcompat_instance_for_guid=self.config.env,
-        )
+        try:
+            all_schema_keys = dict()
+            for inspector in self.get_inspectors():
+     
+                all_schema_keys = inspector._get_schema_keys(db_name , schema)
 
+            
+            return SchemaKey(
+                database=db_name,
+                schema=schema,
+                platform=self.platform,
+                instance=self.config.platform_instance,
+                
+                numberOfProjection = all_schema_keys.get("projection_count", ""),
+                clusterType = all_schema_keys.get("cluster_type", ""),
+                clusterSize = all_schema_keys.get("cluster_size", ""),
+                subClusterCount = all_schema_keys.get("Subcluster", ""),
+                communalStoragePath = all_schema_keys.get("communinal_storage_path", ""),
+                udxsFunctions = all_schema_keys.get("udx_list", ""),
+                UDXsLanguage = all_schema_keys.get("Udx_langauge", ""),
+                backcompat_instance_for_guid=self.config.env,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            print("Hey something went wrong, while gettting schema in gen schema key")
     def gen_database_key(self, database: str) -> PlatformKey:
         return DatabaseKey(
             database=database,
@@ -596,6 +625,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
     def gen_schema_containers(
         self, schema: str, db_name: str
     ) -> Iterable[MetadataWorkUnit]:
+
         schema_container_key = self.gen_schema_key(db_name, schema)
 
         database_container_key: Optional[PlatformKey] = None
@@ -656,11 +686,19 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
                 if sql_config.include_views:
                     yield from self.loop_views(inspector, schema, sql_config)
-
+                    
+                if sql_config.include_projections:
+                    yield from self.loop_projections(inspector, schema,sql_config)
                 if profiler:
                     profile_requests += list(
                         self.loop_profiler_requests(inspector, schema, sql_config)
                     )
+                    profile_requests += list(
+                        self.loop_profiler_requests_for_projections(inspector, schema, sql_config)
+                    )
+                    # loop_profiler_requests_for_projections
+                    # print("==="*70)
+                    # print(profile_requests)
 
             if profiler and profile_requests:
                 yield from self.loop_profiler(
@@ -670,6 +708,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         # Clean up stale entities.
         yield from self.stale_entity_removal_handler.gen_removed_entity_workunits()
 
+    
     def standardize_schema_table_names(
         self, schema: str, entity: str
     ) -> Tuple[str, str]:
@@ -801,13 +840,195 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         except Exception as e:
             self.report.report_failure(f"{schema}", f"Tables error: {e}")
 
+    def loop_projections(  # noqa: C901
+        self,
+        inspector: Inspector,
+        schema: str,
+        sql_config: SQLAlchemyConfig,
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        projections_seen: Set[str] = set()
+      
+        try:
+            for projection in inspector.get_projection_names(schema):
+               
+                schema, projection = self.standardize_schema_table_names(
+                    schema=schema, entity=projection
+                )
+                dataset_name = self.get_identifier(
+                    schema=schema, entity=projection, inspector=inspector
+                )
+
+                dataset_name = self.normalise_dataset_name(dataset_name)
+
+                if dataset_name not in projections_seen:
+                    projections_seen.add(dataset_name)
+                else:
+                    logger.debug(f"{dataset_name} has already been seen, skipping...")
+                    continue
+
+                self.report.report_entity_scanned(dataset_name, ent_type="projection")
+                if not sql_config.projection_pattern.allowed(dataset_name):
+                    self.report.report_dropped(dataset_name)
+                    continue
+
+                try:
+                    yield from self._process_projections(
+                        dataset_name, inspector, schema, projection, sql_config
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Unable to ingest {schema}.{projection} due to an exception.\n {traceback.format_exc()}"
+                    )
+                    self.report.report_warning(
+                        f"{schema}.{projection}", f"Ingestion error: {e}"
+                    )
+        except Exception as e:
+            self.report.report_failure(f"{schema}", f"Tables error: {e}")
+        
+        
+        
+    def _process_projections(
+        self,
+        dataset_name: str,
+        inspector: Inspector,
+        schema: str,
+        projection: str,
+        sql_config: SQLAlchemyConfig,
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        columns = inspector.get_columns(projection, schema)
+   
+        # columns = self._get_projection(dataset_name, inspector, schema, projection)
+        dataset_urn = make_dataset_urn_with_platform_instance(
+            self.platform,
+            dataset_name,
+            self.config.platform_instance,
+            self.config.env,
+        )
+        dataset_snapshot = DatasetSnapshot(
+            urn=dataset_urn,
+            aspects=[StatusClass(removed=False)],
+        )
+        # Add table to the checkpoint state
+        self.stale_entity_removal_handler.add_entity_to_state("projection", dataset_urn)
+        description, properties, location_urn = self.get_projection_properties(
+            inspector, schema, projection
+        )
+
+        # Tablename might be different from the real table if we ran some normalisation ont it.
+        # Getting normalized table name from the dataset_name
+        # Table is the last item in the dataset name
+        normalised_table = projection
+        splits = dataset_name.split(".")
+        if splits:
+            normalised_table = splits[-1]
+            if properties and normalised_table != projection:
+                properties["original_table_name"] = projection
+
+        dataset_properties = DatasetPropertiesClass(
+            name=normalised_table,
+            description=description,
+            customProperties=properties,
+        )
+        dataset_snapshot.aspects.append(dataset_properties)
+
+        if location_urn:
+            external_upstream_table = UpstreamClass(
+                dataset=location_urn,
+                type=DatasetLineageTypeClass.COPY,
+            )
+            lineage_mcpw = MetadataChangeProposalWrapper(
+                entityType="dataset",
+                changeType=ChangeTypeClass.UPSERT,
+                entityUrn=dataset_snapshot.urn,
+                aspectName="upstreamLineage",
+                aspect=UpstreamLineage(upstreams=[external_upstream_table]),
+            )
+            lineage_wu = MetadataWorkUnit(
+                id=f"{self.platform}-{lineage_mcpw.entityUrn}-{lineage_mcpw.aspectName}",
+                mcp=lineage_mcpw,
+            )
+            self.report.report_workunit(lineage_wu)
+            yield lineage_wu
+
+        extra_tags = self.get_extra_tags(inspector, schema, projection)
+        pk_constraints: dict = inspector.get_pk_constraint(projection, schema)
+        
+        foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, projection)
+    
+        schema_fields = self.get_schema_fields(
+            dataset_name, columns, pk_constraints, tags=extra_tags
+        )
+        schema_metadata = get_schema_metadata(
+            self.report,
+            dataset_name,
+            self.platform,
+            columns,
+            pk_constraints,
+            foreign_keys,
+            schema_fields,
+        )
+        dataset_snapshot.aspects.append(schema_metadata)
+        db_name = self.get_db_name(inspector)
+        yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
+        mce = MetadataChangeEvent(proposedSnapshot=dataset_snapshot)
+        wu = SqlWorkUnit(id=dataset_name, mce=mce)
+        self.report.report_workunit(wu)
+        yield wu
+        dpi_aspect = self.get_dataplatform_instance_aspect(dataset_urn=dataset_urn)
+        if dpi_aspect:
+            yield dpi_aspect
+        subtypes_aspect = MetadataWorkUnit(
+            id=f"{dataset_name}-subtypes",
+            mcp=MetadataChangeProposalWrapper(
+                entityType="dataset",
+                changeType=ChangeTypeClass.UPSERT,
+                entityUrn=dataset_urn,
+                aspectName="subTypes",
+                aspect=SubTypesClass(typeNames=["projection"]),
+            ),
+        )
+        self.report.report_workunit(subtypes_aspect)
+        yield subtypes_aspect
+
+        yield from self._get_domain_wu(
+            dataset_name=dataset_name,
+            entity_urn=dataset_urn,
+            entity_type="dataset",
+            sql_config=sql_config,
+        )
+        
+          
+        
+    def _get_projection(
+        self, dataset_name: str, inspector: Inspector, schema: str, projection: str
+    ) -> List[dict]:
+        columns = []
+        try:
+            columns = inspector.get_projection(projection, schema)
+           
+            if len(columns) == 0:
+                self.report.report_warning(MISSING_COLUMN_INFO, dataset_name)
+        except Exception as e:
+            self.report.report_warning(
+                dataset_name,
+                f"unable to get column information due to an error -> {e}",
+            )
+        return columns 
+        
     def add_information_for_schema(self, inspector: Inspector, schema: str) -> None:
         pass
 
     def get_extra_tags(
         self, inspector: Inspector, schema: str, table: str
     ) -> Optional[Dict[str, List[str]]]:
-        return None
+        try:
+           
+            tags = inspector._get_extra_tags(table, schema)
+          
+            return tags
+        except Exception as e:
+            print("Exception : ", e)
+
 
     def _process_table(
         self,
@@ -872,7 +1093,9 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
         extra_tags = self.get_extra_tags(inspector, schema, table)
         pk_constraints: dict = inspector.get_pk_constraint(table, schema)
+        
         foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, table)
+    
         schema_fields = self.get_schema_fields(
             dataset_name, columns, pk_constraints, tags=extra_tags
         )
@@ -947,6 +1170,39 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         # The "properties" field is a non-standard addition to SQLAlchemy's interface.
         properties = table_info.get("properties", {})
         return description, properties, location
+    
+    
+    def get_projection_properties(
+        self, inspector: Inspector, schema: str, projection: str
+    ) -> Tuple[Optional[str], Dict[str, str], Optional[str]]:
+        description: Optional[str] = None
+        properties: Dict[str, str] = {}
+
+        # The location cannot be fetched generically, but subclasses may override
+        # this method and provide a location.
+        location: Optional[str] = None
+
+        try:
+            # SQLAlchemy stubs are incomplete and missing this method.
+            # PR: https://github.com/dropbox/sqlalchemy-stubs/pull/223.
+            projection_info: dict = inspector.get_projection_comment(projection, schema)  # type: ignore
+        except NotImplementedError:
+            return description, properties, location
+        except ProgrammingError as pe:
+            logger.debug(
+                f"Encountered ProgrammingError. Retrying with quoted schema name for schema {schema} and table {properties}",
+                pe,
+            )
+            projection_info: dict = inspector.get_projection_comment(properties, f'"{schema}"')  # type: ignore
+
+        description = projection_info.get("text")
+        if type(description) is tuple:
+            # Handling for value type tuple which is coming for dialect 'db2+ibm_db'
+            description = projection_info["text"][0]
+
+        # The "properties" field is a non-standard addition to SQLAlchemy's interface.
+        properties = projection_info.get("properties", {})
+        return description, properties, location
 
     def get_dataplatform_instance_aspect(
         self, dataset_urn: str
@@ -985,6 +1241,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 f"unable to get column information due to an error -> {e}",
             )
         return columns
+    
+    
 
     def _get_foreign_keys(
         self, dataset_urn: str, inspector: Inspector, schema: str, table: str
@@ -1012,6 +1270,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         canonical_schema = []
         for column in columns:
             column_tags: Optional[List[str]] = None
+        
             if tags:
                 column_tags = tags.get(column["name"], [])
             fields = self.get_schema_fields_for_column(
@@ -1106,7 +1365,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             )
             schema_metadata = None
         else:
-            schema_fields = self.get_schema_fields(dataset_name, columns)
+            extra_tags = self.get_extra_tags(inspector, schema, view)
+            schema_fields = self.get_schema_fields(dataset_name, columns, tags=extra_tags)
             schema_metadata = get_schema_metadata(
                 self.report,
                 dataset_name,
@@ -1123,10 +1383,12 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 # Some dialects return a TextClause instead of a raw string,
                 # so we need to convert them to a string.
                 view_definition = str(view_definition)
+   
         except NotImplementedError:
             view_definition = ""
         properties["view_definition"] = view_definition
         properties["is_view"] = "True"
+       
         dataset_urn = make_dataset_urn_with_platform_instance(
             self.platform,
             dataset_name,
@@ -1250,9 +1512,113 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             sql_config.table_pattern.allowed(dataset_name)
             and sql_config.profile_pattern.allowed(dataset_name)
         ) and (
+            sql_config.projection_pattern.allowed(dataset_name)
+            and sql_config.profile_pattern.allowed(dataset_name)
+        )and (
             profile_candidates is None
             or (profile_candidates is not None and dataset_name in profile_candidates)
         )
+
+    def loop_profiler_requests_for_projections(
+        self,
+        inspector: Inspector,
+        schema: str,
+        sql_config: SQLAlchemyConfig,
+    ) -> Iterable["GEProfilerRequest"]:
+        from datahub.ingestion.source.ge_data_profiler import GEProfilerRequest
+
+        tables_seen: Set[str] = set()
+        profile_candidates = None  # Default value if profile candidates not available.
+        if (
+            sql_config.profiling.profile_if_updated_since_days is not None
+            or sql_config.profiling.profile_table_size_limit is not None
+            or sql_config.profiling.profile_table_row_limit is None
+        ):
+            try:
+                threshold_time: Optional[datetime.datetime] = None
+                if sql_config.profiling.profile_if_updated_since_days is not None:
+                    threshold_time = datetime.datetime.now(
+                        datetime.timezone.utc
+                    ) - datetime.timedelta(
+                        sql_config.profiling.profile_if_updated_since_days
+                    )
+                profile_candidates = self.generate_profile_candidates(
+                    inspector, threshold_time, schema
+                )
+            except NotImplementedError:
+                logger.debug("Source does not support generating profile candidates.")
+
+        for projection in inspector.get_projection_names(schema):
+               
+            schema, projection = self.standardize_schema_table_names(
+                schema=schema, entity=projection
+            )
+            dataset_name = self.get_identifier(
+                schema=schema, entity=projection, inspector=inspector
+            )
+            
+            
+            if not self.is_dataset_eligible_for_profiling(
+                dataset_name, sql_config, inspector, profile_candidates
+            ):
+                if self.config.profiling.report_dropped_profiles:
+                    self.report.report_dropped(f"profile of {dataset_name}")
+                continue
+
+            dataset_name = self.normalise_dataset_name(dataset_name)
+
+            if dataset_name not in tables_seen:
+                tables_seen.add(dataset_name)
+            else:
+                logger.debug(f"{dataset_name} has already been seen, skipping...")
+                continue
+
+            missing_column_info_warn = self.report.warnings.get(MISSING_COLUMN_INFO)
+            if (
+                missing_column_info_warn is not None
+                and dataset_name in missing_column_info_warn
+            ):
+                continue
+
+            (partition, custom_sql) = self.generate_partition_profiler_query(
+                schema, projection, self.config.profiling.partition_datetime
+            )
+
+            if partition is None and self.is_table_partitioned(
+                database=None, schema=schema, table=projection
+            ):
+                self.report.report_warning(
+                    "profile skipped as partitioned table is empty or partition id was invalid",
+                    dataset_name,
+                )
+                continue
+
+            if (
+                partition is not None
+                and not self.config.profiling.partition_profiling_enabled
+            ):
+                logger.debug(
+                    f"{dataset_name} and partition {partition} is skipped because profiling.partition_profiling_enabled property is disabled"
+                )
+                continue
+
+            self.report.report_entity_profiled(dataset_name)
+            logger.debug(
+                f"Preparing profiling request for {schema}, {projection}, {partition}"
+            )
+            
+            
+            yield GEProfilerRequest(
+                pretty_name=dataset_name,
+                batch_kwargs=self.prepare_profiler_args(
+                    inspector=inspector,
+                    schema=schema,
+                    table=projection,
+                    partition=partition,
+                    custom_sql=custom_sql,
+                ),
+            )
+
 
     def loop_profiler_requests(
         self,
@@ -1338,6 +1704,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             logger.debug(
                 f"Preparing profiling request for {schema}, {table}, {partition}"
             )
+            
+           
             yield GEProfilerRequest(
                 pretty_name=dataset_name,
                 batch_kwargs=self.prepare_profiler_args(
@@ -1361,6 +1729,9 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             platform=platform,
             profiler_args=self.get_profile_args(),
         ):
+            # print("888"*66)
+            # print(request, profile)
+            # print("888"*66)
             if profile is None:
                 continue
             dataset_name = request.pretty_name
@@ -1399,3 +1770,6 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
     def close(self):
         self.prepare_for_commit()
+        
+        
+

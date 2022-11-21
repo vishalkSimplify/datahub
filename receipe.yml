@@ -1,13 +1,49 @@
 source:
   type: vertica
   config:
-    # Coordinates
-    host_port: localhost:5433
-    database: VMart
+  #   # # Coordinates
+ 
 
-    # Credentials
-    username: "dbadmin"
-    password: ""
+    #Coordinates
+    # host_port: localhost:5433
+    # database: Vmart
+
+    # # #Credentials
+    # username: "dbadmin"
+    # password: ""
+ 
+
+
+    include_tables: true
+    include_views: false
+    include_projections: true
+    profiling: 
+      enabled: true
+      # limit: null
+      # offset: null
+      # report_dropped_profiles: true
+      # turn_off_expensive_profiling_metrics: true
+      # profile_table_level_only: false
+      # include_field_null_count: true
+      # include_field_min_value: true
+      # include_field_max_value: true
+      # include_field_mean_value: true
+      # include_field_median_value: true
+      # include_field_stddev_value: true
+      # include_field_quantiles: true
+      # include_field_distinct_value_frequencies: tru
+      # include_field_histogram: true
+      # include_field_sample_values: true
+      # max_number_of_fields_to_profile: 20
+      # profile_if_updated_since_days: 1
+      # profile_table_size_limit: 1
+      # profile_table_row_limit: 50000
+      max_workers: 90
+      # query_combiner_enabled: true
+      # catch_exceptions: true
+      # partition_profiling_enabled: true
+      # bigquery_temp_table_schema: null
+      # partition_datetime: null
 
 # source:
 #   type: file
@@ -17,9 +53,15 @@ source:
 
 sink:
   # sink configs
+  # type: "datahub-kafka"
+  # config:
+  #   connection:
+  #     bootstrap: "localhost:9092"
   type: 'datahub-rest'
+
   config:
-    server: 'http://localhost:8080'
+    server: 'http://localhost:8080' 
+    max_threads: 90
 
 # transformers:
 #   - type: "simple_add_dataset_ownership"
@@ -27,15 +69,19 @@ sink:
 #       owner_urns:
 #         - "urn:li:corpuser:dbadmin"
 #       ownership_type: "PRODUCER"
-# transformers:
-#       # - type: "simple_add_dataset_domain"
-#       #   config:
-#       #     semantics: OVERWRITE
-#       #     domains:
-#       #       - urn:li:domain:vertica
-#       - type: "simple_add_dataset_ownership"
-#         config:
-#           owner_urns:
-#             - "urn:li:corpuser:dbadmin"
-#           ownership_type: "PRODUCER"
+transformers:
+      # - type: "simple_add_dataset_domain"
+      #   config:
+      #     semantics: OVERWRITE
+      #     domains:
+      #       - urn:li:domain:vertica
+      # - type: "simple_add_dataset_ownership"
+      #   config:
+      #     owner_urns:
+      #       - "urn:li:corpuser:dbadmin"
+      #     ownership_type: "PRODUCER"
+      # - type: simple_add_dataset_tags
+      #   config:
+      #     tag_urns:
+      #       - "urn:li:tag:test"
       

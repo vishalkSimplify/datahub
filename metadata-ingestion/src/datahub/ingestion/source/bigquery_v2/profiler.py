@@ -283,6 +283,10 @@ WHERE
                 and self.config.profile_pattern.allowed(dataset_name)
             )
             and (
+                self.config.projection_pattern.allowed(dataset_name)
+                and self.config.profile_pattern.allowed(dataset_name)
+            )
+            and (
                 (threshold_time is None)
                 or (last_altered is not None and last_altered >= threshold_time)
             )

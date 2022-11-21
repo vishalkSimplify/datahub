@@ -53,8 +53,10 @@ class DatahubKey(BaseModel):
 
 
 class PlatformKey(DatahubKey):
+    
     platform: str
     instance: Optional[str] = None
+    
 
     # BUG: In some of our sources, we incorrectly set the platform instance
     # to the env if no platform instance was specified. Now, we have to maintain
@@ -84,7 +86,17 @@ class DatabaseKey(PlatformKey):
 
 class SchemaKey(DatabaseKey):
     db_schema: str = Field(alias="schema")
-
+    numberOfProjection: Optional[str]
+    
+    # cluster related data
+    clusterType : Optional[str] =  None
+    clusterSize : Optional[str] = None
+    subClusterCount : Optional[str] = None
+    communalStoragePath : Optional[str] = None
+    
+    udxsFunctions : Optional[str] = None
+    UDXsLanguage : Optional[str] = None
+    
 
 class ProjectIdKey(PlatformKey):
     project_id: str
@@ -191,7 +203,7 @@ def gen_containers(
     description: Optional[str] = None,
     owner_urn: Optional[str] = None,
     external_url: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    tags: Optional[List[str]] = ["Hey", "There"],
     qualified_name: Optional[str] = None,
 ) -> Iterable[MetadataWorkUnit]:
     container_urn = make_container_urn(
