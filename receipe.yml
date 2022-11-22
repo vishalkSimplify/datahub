@@ -5,20 +5,20 @@ source:
  
 
     #Coordinates
-    # host_port: localhost:5433
-    # database: Vmart
+    host_port: localhost:5433
+    database: Vmart
 
-    # # #Credentials
-    # username: "dbadmin"
-    # password: ""
+    # #Credentials
+    username: "dbadmin"
+    password: ""
  
 
 
     include_tables: true
-    include_views: false
+    include_views: true
     include_projections: true
-    profiling: 
-      enabled: true
+    # profiling: 
+    #   enabled: true
       # limit: null
       # offset: null
       # report_dropped_profiles: true
@@ -38,7 +38,7 @@ source:
       # profile_if_updated_since_days: 1
       # profile_table_size_limit: 1
       # profile_table_row_limit: 50000
-      max_workers: 90
+      # max_workers: 90
       # query_combiner_enabled: true
       # catch_exceptions: true
       # partition_profiling_enabled: true

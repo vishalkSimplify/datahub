@@ -91,7 +91,7 @@ class SchemaKey(DatabaseKey):
     # cluster related data
     clusterType : Optional[str] =  None
     clusterSize : Optional[str] = None
-    subClusterCount : Optional[str] = None
+    subClusters : Optional[str] = None
     communalStoragePath : Optional[str] = None
     
     udxsFunctions : Optional[str] = None

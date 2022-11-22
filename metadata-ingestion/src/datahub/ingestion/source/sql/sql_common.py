@@ -590,7 +590,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 numberOfProjection = all_schema_keys.get("projection_count", ""),
                 clusterType = all_schema_keys.get("cluster_type", ""),
                 clusterSize = all_schema_keys.get("cluster_size", ""),
-                subClusterCount = all_schema_keys.get("Subcluster", ""),
+                subClusters = all_schema_keys.get("Subcluster", ""),
                 communalStoragePath = all_schema_keys.get("communinal_storage_path", ""),
                 udxsFunctions = all_schema_keys.get("udx_list", ""),
                 UDXsLanguage = all_schema_keys.get("Udx_langauge", ""),

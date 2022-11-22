@@ -50,16 +50,6 @@ from datahub.ingestion.source.sql.sql_common import (
 
 
 )
-from datahub.emitter.mcp_builder import (
-    DatabaseKey,
-    PlatformKey,
-    SchemaKey,
-    add_dataset_to_container,
-    add_domain_to_entity_wu,
-    gen_containers,
-    gen_containers
-
-)
 
 from sqlalchemy.engine import reflection
 from sqlalchemy.engine.reflection import Inspector
@@ -378,7 +368,6 @@ def get_projection_comment(self, connection,projection_name, schema=None, **kw):
     else:
         schema_condition = "1"
     
-    
         
     src = sql.text(dedent("""
             SELECT ros_count 
@@ -587,15 +576,18 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
                 
         
         # CLUSTER SIZE
-        cluster_size_qry = sql.text(dedent("""
-            SELECT 
-                host_name,
-                processor_count,
-                processor_core_count,
-                processor_description,
-                ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
-                FROM V_MONITOR.HOST_RESOURCES
-        """ % {'schema_condition': schema_condition}))
+        # cluster_size_qry = sql.text(dedent("""
+        #     SELECT 
+        #         host_name,
+        #         processor_count,
+        #         processor_core_count,
+        #         processor_description,
+        #         ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
+        #         FROM V_MONITOR.HOST_RESOURCES
+                
+        #         select (SUM(disk_space_used_mb) //1024 ) as cluster_size
+        #         from disk_storage
+        # """ % {'schema_condition': schema_condition}))
         
         cluster__size = sql.text(dedent("""
             select (SUM(disk_space_used_mb) //1024 ) as cluster_size
@@ -608,13 +600,13 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
             WHERE lower(schema_name) = '%(schema)s'
         """ % {'schema_condition': schema_condition,"schema":schema}))
         cluster_size = ""
-        for each in connection.execute(cluster_size_qry):
-            cluster_size = str(each.total_memory_gbytes) + " GB"
+        # for each in connection.execute(cluster_size_qry):
+        #     cluster_size = str(each.total_memory_gbytes) + " GB"
             
-        # for each in connection.execute(cluster__size):
+        for each in connection.execute(cluster__size):
           
-        #     cluster__size = str(each[0]) + " GB" 
-        #     print("______________________cluster size",str(each[0]) + " GB" )
+            cluster__size = str(each.cluster_size) + " GB" 
+           
         
         # UDX list
         UDX_functions_qry = sql.text(dedent("""
@@ -683,7 +675,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_demo")
+        super().__init__(config, ctx, "vertica_test")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
