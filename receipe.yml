@@ -5,23 +5,20 @@ source:
  
 
     #Coordinates
-    host_port: localhost:5433
-    database: Vmart
+    # host_port: localhost:5433
+    # database: Vmart
 
-    #Credentials
-    username: "dbadmin"
-    password: ""
+    # # #Credentials
+    # username: "dbadmin"
+    # password: ""
+ 
 
-    # host_port: 140.236.88.151:5433
-    # database: PartPub80DB
 
-    # # # Credentials
-    # username: "datahub2_user"
-    # password: "datahub2_22"
+    include_tables: true
     include_views: false
     include_projections: true
-    # profiling: 
-    #   enabled: true
+    profiling: 
+      enabled: true
       # limit: null
       # offset: null
       # report_dropped_profiles: true
@@ -41,7 +38,7 @@ source:
       # profile_if_updated_since_days: 1
       # profile_table_size_limit: 1
       # profile_table_row_limit: 50000
-      # max_workers: 90
+      max_workers: 90
       # query_combiner_enabled: true
       # catch_exceptions: true
       # partition_profiling_enabled: true
@@ -56,15 +53,15 @@ source:
 
 sink:
   # sink configs
-  type: "datahub-kafka"
-  config:
-    connection:
-      bootstrap: "localhost:9092"
-  # type: 'datahub-rest'
-
+  # type: "datahub-kafka"
   # config:
-  #   server: 'http://localhost:8080' 
-  #   max_threads: 10
+  #   connection:
+  #     bootstrap: "localhost:9092"
+  type: 'datahub-rest'
+
+  config:
+    server: 'http://localhost:8080' 
+    max_threads: 90
 
 # transformers:
 #   - type: "simple_add_dataset_ownership"

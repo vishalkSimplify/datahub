@@ -99,6 +99,7 @@ class SchemaKey(DatabaseKey):
 
     udxsFunctions : Optional[str] = None
     UDXsLanguage : Optional[str] = None
+    
 
 class ProjectIdKey(PlatformKey):
     project_id: str
