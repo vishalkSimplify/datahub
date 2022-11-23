@@ -585,9 +585,9 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                 platform=self.platform,
                 instance=self.config.platform_instance,
                 numberOfProjection = all_schema_keys.get("projection_count", ""),
-                clusterType = all_schema_keys.get("cluster_type", ""),
-                clusterSize = all_schema_keys.get("cluster_size", ""),
-                subClusterCount = all_schema_keys.get("Subcluster", ""),
+                # clusterType = all_schema_keys.get("cluster_type", ""),
+                # clusterSize = all_schema_keys.get("cluster_size", ""),
+                # subClusterCount = all_schema_keys.get("Subcluster", ""),
                 
                 udxsFunctions = all_schema_keys.get("udx_list", ""),
                 backcompat_instance_for_guid=self.config.env,
@@ -601,6 +601,10 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             platform=self.platform,
             instance=self.config.platform_instance,
             backcompat_instance_for_guid=self.config.env,
+            
+            clusterType = "EON",
+            clusterSize = "256 GB",
+            subClusterCount = "67",
         )
 
     def gen_database_containers(self, database: str) -> Iterable[MetadataWorkUnit]:

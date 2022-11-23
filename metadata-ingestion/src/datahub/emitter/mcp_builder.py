@@ -82,6 +82,10 @@ class PlatformKey(DatahubKey):
 
 class DatabaseKey(PlatformKey):
     database: str
+    # cluster related data
+    clusterType : Optional[str]
+    clusterSize : Optional[str]
+    subClusterCount : Optional[str]
 
 
 class SchemaKey(DatabaseKey):
@@ -89,9 +93,9 @@ class SchemaKey(DatabaseKey):
     numberOfProjection: Optional[str]
     
     # cluster related data
-    clusterType : Optional[str] =  None
-    clusterSize : Optional[str] = None
-    subClusterCount : Optional[str] = None
+    # clusterType : Optional[str] =  None
+    # clusterSize : Optional[str] = None
+    # subClusterCount : Optional[str] = None
 
     udxsFunctions : Optional[str] = None
     UDXsLanguage : Optional[str] = None
@@ -201,7 +205,7 @@ def gen_containers(
     description: Optional[str] = None,
     owner_urn: Optional[str] = None,
     external_url: Optional[str] = None,
-    tags: Optional[List[str]] = ["Hey", "There"],
+    tags: Optional[List[str]] = None,
     qualified_name: Optional[str] = None,
 ) -> Iterable[MetadataWorkUnit]:
     container_urn = make_container_urn(
