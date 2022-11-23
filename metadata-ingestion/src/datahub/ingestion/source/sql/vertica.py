@@ -24,7 +24,7 @@ from sqlalchemy import sql, util
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.sqltypes import TIME, TIMESTAMP, String
 from sqlalchemy_vertica.base import VerticaDialect
-from sqlalchemy.engine import reflection
+
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.decorators import (
     SourceCapability,
@@ -34,26 +34,16 @@ from datahub.ingestion.api.decorators import (
     platform_name,
     support_status,
 )
-from datahub.metadata.com.linkedin.pegasus2avro.schema import (
-    DateTypeClass,
-    NullTypeClass,
-    NumberTypeClass,
-    SchemaField,
-    TimeTypeClass,
-)
+
 
 from datahub.ingestion.source.sql.sql_common import (
     BasicSQLAlchemyConfig,
     SQLAlchemySource,
 
-
-
-
 )
 
-from sqlalchemy.engine import reflection
-from sqlalchemy.engine.reflection import Inspector
 from datahub.utilities import config_clean
+
 
 class UUID(String):
     """The SQL UUID type."""
@@ -72,7 +62,7 @@ def TIME_WITH_TIMEZONE(*args, **kwargs):
 
 
 def get_view_definition(self, connection, view_name, schema=None, **kw):
-  
+
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {
             "schema": schema.lower()
@@ -92,13 +82,8 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
             )
         )
     )
-   
 
-    return  view_def 
-
-
-
-    
+    return view_def
 
 
 def get_columns(self, connection, table_name, schema=None, **kw):
@@ -132,45 +117,39 @@ def get_columns(self, connection, table_name, schema=None, **kw):
             AND %(schema_condition)s
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
 
-
     pk_columns = [x[0] for x in connection.execute(spk)]
-    
+
     columns = []
-    
+
     for row in connection.execute(s):
-            
-            name = row.column_name 
-            dtype = row.data_type.lower()
-            primary_key = name in pk_columns
-            default = row.column_default
-            nullable = row.is_nullable
-          
-            column_info = self._get_column_info(
-                name,
-                dtype,
-                default,
-                nullable,
-                schema)
-             
 
+        name = row.column_name
+        dtype = row.data_type.lower()
+        primary_key = name in pk_columns
+        default = row.column_default
+        nullable = row.is_nullable
 
-  
-    
-            # primaryKeys = self.get_pk_constraint(connection, table_name,schema)
-            
-            
-            column_info.update({'primary_key': primary_key})
-           
-            columns.append(column_info)
-            
+        column_info = self._get_column_info(
+            name,
+            dtype,
+            default,
+            nullable,
+            schema)
+
+        # primaryKeys = self.get_pk_constraint(connection, table_name,schema)
+
+        column_info.update({'primary_key': primary_key})
+
+        columns.append(column_info)
+
     return columns
+
 
 def get_projection(self, connection, projection_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
     else:
         schema_condition = "1"
-    
 
     s = sql.text(dedent("""
         SELECT projection_name
@@ -182,9 +161,9 @@ def get_projection(self, connection, projection_name, schema=None, **kw):
     columns = []
     for row in connection.execute(s):
         columns.append(row)
-        
-            
+
     return columns
+
 
 def get_pk_constraint(self, connection, table_name, schema: None, **kw):
     if schema is not None:
@@ -200,7 +179,6 @@ def get_pk_constraint(self, connection, table_name, schema: None, **kw):
             AND %(schema_condition)s
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
 
-
     pk_columns = []
 
     for row in connection.execute(spk):
@@ -211,9 +189,8 @@ def get_pk_constraint(self, connection, table_name, schema: None, **kw):
     return {'constrained_columns': pk_columns , 'name': pk_columns}
 
 
-
 def _get_column_info(  # noqa: C901
-    self, name, data_type, default,is_nullable ,schema=None,
+    self, name, data_type, default, is_nullable , schema=None,
 ):
 
     attype: str = re.sub(r"\(.*\)", "", data_type)
@@ -296,30 +273,28 @@ def _get_column_info(  # noqa: C901
                     + match.group(2)
                     + match.group(3)
                 )
-    
-
 
     column_info = dict(
         name=name,
         type=coltype,
         nullable=is_nullable,
         default=default,
-        comment = default,
+        comment=default,
         autoincrement=autoincrement,
-       
+
     )
 
     return column_info
 
 
 def get_table_comment(self, connection, table_name, schema=None, **kw):
-     
-        if schema is not None:
-            schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
-        else:
-            schema_condition = "1"
-        
-        sct = sql.text(dedent("""
+
+    if schema is not None:
+        schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+
+    sct = sql.text(dedent("""
             SELECT create_time , table_name
             FROM v_catalog.tables
             WHERE lower(table_name) = '%(table)s'
@@ -331,165 +306,153 @@ def get_table_comment(self, connection, table_name, schema=None, **kw):
             AND %(schema_condition)s
             
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
-        
-        sts = sql.text(dedent("""
+
+    sts = sql.text(dedent("""
             SELECT ROUND(SUM(used_bytes) / 1024 ) AS table_size
             FROM v_monitor.column_storage
             WHERE lower(anchor_table_name) = '%(table)s'
             
         """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
-        
-        # src = sql.text(dedent("""
-        #     SELECT ros_count 
-        #     FROM v_monitor.projection_storage
-        #     WHERE lower(anchor_table_name) = '%(table)s'
-        # """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
-        columns = ""
-        for column in connection.execute(sct):
-            columns = column['create_time']
-        
-        # ros_count = ""
-        # for data in connection.execute(src):
-        #     ros_count = data['ros_count']
-           
-        for table_size in connection.execute(sts):
-            if table_size[0] is None:
-                TableSize = 0
-            else:  
-                TableSize = math.trunc(table_size['table_size'])
-        
-        return {"text": "This Vertica module is still is development Process", "properties":{"create_time":str(columns),"Total_Table_Size":str(TableSize) + " KB"}}
+
+    # src = sql.text(dedent("""
+    #     SELECT ros_count
+    #     FROM v_monitor.projection_storage
+    #     WHERE lower(anchor_table_name) = '%(table)s'
+    # """ % {'table': table_name.lower(), 'schema_condition': schema_condition}))
+    columns = ""
+    for column in connection.execute(sct):
+        columns = column['create_time']
+
+    # ros_count = ""
+    # for data in connection.execute(src):
+    #     ros_count = data['ros_count']
+
+    for table_size in connection.execute(sts):
+        if table_size[0] is None:
+            TableSize = 0
+        else:
+            TableSize = math.trunc(table_size['table_size'])
+
+    return {"text": "This Vertica module is still is development Process", "properties": {"create_time": str(columns), "Total_Table_Size": str(TableSize) + " KB"}}
 
 
-
-def get_projection_comment(self, connection,projection_name, schema=None, **kw):
+def get_projection_comment(self, connection, projection_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
     else:
         schema_condition = "1"
-    
-        
+
     src = sql.text(dedent("""
             SELECT ros_count 
             FROM v_monitor.projection_storage
             WHERE lower(projection_name) = '%(table)s'
 
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
-    
+
     sig = sql.text(dedent("""
             SELECT is_segmented 
             FROM v_catalog.projections 
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
-    spk =  sql.text(dedent("""
+
+    spk = sql.text(dedent("""
             SELECT   partition_key
             FROM v_monitor.partitions
             WHERE lower(projection_name) = '%(table)s'
             LIMIT 1
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     spt = sql.text(dedent("""
             SELECT is_super_projection,is_key_constraint_projection,is_aggregate_projection,has_expressions
             FROM v_catalog.projections
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     snp = sql.text(dedent("""
             SELECT Count(ros_id) as np
             FROM v_monitor.partitions
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     ssk = sql.text(dedent("""
             SELECT  segment_expression 
             FROM v_catalog.projections
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     sps = sql.text(dedent("""
             SELECT ROUND(used_bytes // 1024)   AS used_bytes 
             from v_monitor.projection_storage
             WHERE lower(projection_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     depot_pin_policy = sql.text(dedent("""
             SELECT COUNT(*)
             FROM DEPOT_PIN_POLICIES
             WHERE lower(object_name) = '%(table)s'
         """ % {'table': projection_name.lower(), 'schema_condition': schema_condition}))
-    
+
     ros_count = ""
     partition_key = ""
     is_segmented = ""
-    projection_type= []
+    projection_type = []
     partition_number = ""
     segmentation_key = ""
     projection_size = ""
     cached_projection = ""
-    
+
     for data in connection.execute(sig):
         is_segmented = data['is_segmented']
         if is_segmented :
             for data in connection.execute(ssk):
                 segmentation_key = str(data)
-            
-       
-        
+
     for data in connection.execute(src):
         ros_count = data['ros_count']
-        
+
     for data in connection.execute(spk):
         partition_key = data['partition_key']
-    
+
     for data in connection.execute(spt):
-        lst = ["is_super_projection","is_key_constraint_projection","is_aggregate_projection","is_shared"]
-       
+        lst = ["is_super_projection", "is_key_constraint_projection", "is_aggregate_projection", "is_shared"]
+
         i = 0
         for d in range(len(data)):
             if data[i]:
                 projection_type.append(lst[i])
             i += 1
-                
-                
 
-
-            
     for data in connection.execute(snp):
         partition_number = data.np
-       
-        
+
     for data in connection.execute(sps):
-        projection_size = data['used_bytes'] 
-        
+        projection_size = data['used_bytes']
+
     for data in connection.execute(depot_pin_policy):
         if data[0] > 0:
             cached_projection = "True"
         else:
             cached_projection = "False"
-        
-      
-  
-        
-    return {"text": "This Vertica module is still is development Process for Projections",  
-            "properties":{"ROS Count":str(ros_count),"is_segmented":str(is_segmented),
-                          "Projection Type":str(projection_type),"Partition Key":str(partition_key),
-                          "Number of Partition" : str(partition_number),
-                          "Segmentation_key":segmentation_key,
-                          "Projection SIze":str(projection_size)+ " KB",
-                          "Projection Cached": str(cached_projection)}}
-    
+
+    return {"text": "This Vertica module is still is development Process for Projections",
+            "properties": {"ROS Count": str(ros_count), "is_segmented": str(is_segmented),
+                           "Projection Type": str(projection_type), "Partition Key": str(partition_key),
+                           "Number of Partition" : str(partition_number),
+                           "Segmentation_key": segmentation_key,
+                           "Projection SIze": str(projection_size) + " KB",
+                           "Projection Cached": str(cached_projection)}}
+
+
 def _get_extra_tags(
-        self, connection, table, schema=None
-    ) -> Optional[Dict[str, List[str]]]:
-        
-        if schema is not None:
-            schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
-        else:
-            schema_condition = "1"
-        
-        table_owner_command = s = sql.text(dedent("""
+    self, connection, table, schema=None
+) -> Optional[Dict[str, List[str]]]:
+
+    if schema is not None:
+        schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+
+    table_owner_command = s = sql.text(dedent("""
         SELECT table_name, owner_name
         FROM v_catalog.tables
         WHERE lower(table_name) = '%(table)s'
@@ -501,14 +464,13 @@ def _get_extra_tags(
         AND %(schema_condition)s
         """ % {'table': table.lower(), 'schema_condition': schema_condition}))
 
-        
-        table_owner_res = connection.execute(table_owner_command)    
-        
-        owner_name = None
-        for every in table_owner_res:
-            owner_name = every[1]
-          
-        s = sql.text(dedent("""
+    table_owner_res = connection.execute(table_owner_command)
+
+    owner_name = None
+    for every in table_owner_res:
+        owner_name = every[1]
+
+    s = sql.text(dedent("""
             SELECT column_name, data_type, column_default,is_nullable
             FROM v_catalog.columns
             WHERE lower(table_name) = '%(table)s'
@@ -520,19 +482,19 @@ def _get_extra_tags(
             AND %(schema_condition)s
         """ % {'table': table.lower(), 'schema_condition': schema_condition}))
 
-        final_tags = dict()
-        for row in connection.execute(s):
-            final_tags[row.column_name] = [owner_name]
+    final_tags = dict()
+    for row in connection.execute(s):
+        final_tags[row.column_name] = [owner_name]
 
-        return final_tags
+    return final_tags
 
 
 def _get_schema_keys(self, connection, db_name, schema) -> dict:
     try:
-        
+
         if schema is not None:
             schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
-        
+
         # Projection count
         projection_count_query = sql.text(dedent("""
             SELECT 
@@ -540,13 +502,12 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
             from 
                 v_catalog.projections 
             WHERE lower(projection_schema) = '%(schema)s'
-        """ % {'schema_condition': schema_condition, "schema":schema}))
-        
+        """ % {'schema_condition': schema_condition, "schema": schema}))
+
         projection_count = None
         for each in connection.execute(projection_count_query):
             projection_count = each.pc
-            
-            
+
         # Query for CLUSTER TYPE
         cluster_type_qry = sql.text(dedent("""
             SELECT 
@@ -557,57 +518,53 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
             END AS database_mode 
             FROM v_catalog.shards
         """ % {'schema_condition': schema_condition}))
-        
+
         communal_storage_path = sql.text(dedent("""
             SELECT location_path from storage_locations 
                 WHERE sharing_type = 'COMMUNAL'
         """ % {'schema_condition': schema_condition}))
-        
-        
+
         cluster_type = ""
-        communical_path =""
-        cluster_type_res = connection.execute(cluster_type_qry)   
+        communical_path = ""
+        cluster_type_res = connection.execute(cluster_type_qry)
         for each in cluster_type_res:
-           
+
             cluster_type = each.database_mode
             if cluster_type.lower() == 'eon':
                 for each in connection.execute(communal_storage_path):
                     communical_path += str(each.location_path) + " | "
-                
-        
+
         # CLUSTER SIZE
         # cluster_size_qry = sql.text(dedent("""
-        #     SELECT 
+        #     SELECT
         #         host_name,
         #         processor_count,
         #         processor_core_count,
         #         processor_description,
         #         ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
         #         FROM V_MONITOR.HOST_RESOURCES
-                
+
         #         select (SUM(disk_space_used_mb) //1024 ) as cluster_size
         #         from disk_storage
         # """ % {'schema_condition': schema_condition}))
-        
+
         cluster__size = sql.text(dedent("""
-            select (SUM(disk_space_used_mb) //1024 ) as cluster_size
+            select ROUND(SUM(disk_space_used_mb) //1024 ) as cluster_size
             from disk_storage
         """ % {'schema_condition': schema_condition}))
-        
+
         UDL_LANGUAGE = sql.text(dedent("""
             SELECT lib_name , description 
                 FROM USER_LIBRARIES
             WHERE lower(schema_name) = '%(schema)s'
-        """ % {'schema_condition': schema_condition,"schema":schema}))
+        """ % {'schema_condition': schema_condition, "schema": schema}))
         cluster_size = ""
         # for each in connection.execute(cluster_size_qry):
         #     cluster_size = str(each.total_memory_gbytes) + " GB"
-            
+
         for each in connection.execute(cluster__size):
-          
-            cluster__size = str(each.cluster_size) + " GB" 
-           
-        
+            cluster_size = str(each.cluster_size) + " GB"
+
         # UDX list
         UDX_functions_qry = sql.text(dedent("""
             SELECT 
@@ -618,36 +575,39 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
         """ % {'schema': schema, 'schema_condition': schema_condition}))
         udx_list = ""
         for each in connection.execute(UDX_functions_qry):
-            # print(each)
-            # udx_list.append(each.function_name)
-            udx_list += each.function_name+ ", "
-        
+            udx_list += each.function_name + ", "
+
         subclusters = ""
-        SUBCLUSTER_QUERY = sql.text(dedent("""
-            SELECT 
-                subcluster_name
-            FROM 
-                subclusters
-        """ % {'schema': schema, 'schema_condition': schema_condition}))
+        # SUBCLUSTER_QUERY = sql.text(dedent("""
+        #     SELECT 
+        #         subcluster_name
+        #     FROM 
+        #         subclusters
+        # """ % {'schema': schema, 'schema_condition': schema_condition}))
         
-        for data in connection.execute(SUBCLUSTER_QUERY):
-            subclusters += str(data.subcluster_name) + " | "
+        SUBCLUSTER_SIZE = sql.text(dedent("""
+                        SELECT subclusters.subcluster_name , CAST(sum(disk_space_used_mb // 1024) as varchar(10)) as subclustersize from subclusters  
+                        inner join disk_storage using (node_name) 
+                        group by subclusters.subcluster_name
+                         """ % {'schema': schema, 'schema_condition': schema_condition}))
         
-        #UDX Language
         
+        for data in connection.execute(SUBCLUSTER_SIZE):
+            subclusters += f"{data['subcluster_name']} -- {data['subclustersize']} GB |  "
+
+        # UDX Language
+
         user_defined_library = ""
         for data in connection.execute(UDL_LANGUAGE):
             # user_defined_library = {"lib_name": data['lib_name'] , 'language' : data['description']}
             user_defined_library += f"{data['lib_name']} -- {data['description']} |  "
-        
+
         return {"projection_count": projection_count,
                 "cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
-                'udx_list': udx_list ,'Udx_langauge' : user_defined_library ,"communinal_storage_path":communical_path }
-        
+                'udx_list': udx_list , 'Udx_langauge' : user_defined_library , "communinal_storage_path": communical_path}
+
     except Exception as e:
         print("Exception in _get_schema_keys from vertica ")
-        
-
 
 
 VerticaDialect.get_view_definition = get_view_definition
@@ -655,10 +615,11 @@ VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
 VerticaDialect.get_pk_constraint = get_pk_constraint
 VerticaDialect._get_extra_tags = _get_extra_tags
-VerticaDialect.get_projection=get_projection
+VerticaDialect.get_projection = get_projection
 VerticaDialect.get_table_comment = get_table_comment
 VerticaDialect.get_projection_comment = get_projection_comment
 VerticaDialect._get_schema_keys = _get_schema_keys
+
 
 class VerticaConfig(BasicSQLAlchemyConfig):
     # defaults
@@ -668,6 +629,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
     def clean_host_port(cls, v):
         return config_clean.remove_protocol(v)
 
+
 @platform_name("Vertica")
 @config_class(VerticaConfig)
 @support_status(SupportStatus.TESTING)
@@ -675,9 +637,11 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_test")
+        super().__init__(config, ctx, "vertica")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
+
+    
