@@ -444,48 +444,45 @@ def get_projection_comment(self, connection, projection_name, schema=None, **kw)
 
 
 def _get_extra_tags(
-    self, connection, table, schema=None
-) -> Optional[Dict[str, List[str]]]:
+    self, connection, name, schema=None
+) -> Optional[Dict[str, str]]:
 
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
     else:
         schema_condition = "1"
+        
+    owner_res = None
+    if name == "table":
+        table_owner_command = sql.text(dedent("""
+            SELECT table_name, owner_name
+            FROM v_catalog.tables
+            WHERE %(schema_condition)s
+            """ % {'schema_condition': schema_condition}))
 
-    table_owner_command = s = sql.text(dedent("""
-        SELECT table_name, owner_name
-        FROM v_catalog.tables
-        WHERE lower(table_name) = '%(table)s'
-        AND %(schema_condition)s
-        UNION ALL
-        SELECT table_name, owner_name
-        FROM v_catalog.views
-        WHERE lower(table_name) = '%(table)s'
-        AND %(schema_condition)s
-        """ % {'table': table.lower(), 'schema_condition': schema_condition}))
+        owner_res = connection.execute(table_owner_command)
+        
+    elif name == "projection":
+        table_owner_command = sql.text(dedent("""
+            SELECT projection_name as table_name, owner_name
+            FROM v_catalog.projections
+            WHERE lower(projection_schema) = '%(schema)s'
+            """ % {'schema': schema.lower()}))
+        owner_res = connection.execute(table_owner_command)
+        
+        
+    elif name == "view":
+        table_owner_command = sql.text(dedent("""
+            SELECT table_name, owner_name
+            FROM v_catalog.views
+            WHERE %(schema_condition)s
+            """ % {'schema_condition': schema_condition}))
+        owner_res = connection.execute(table_owner_command)
 
-    table_owner_res = connection.execute(table_owner_command)
-
-    owner_name = None
-    for every in table_owner_res:
-        owner_name = every[1]
-
-    s = sql.text(dedent("""
-            SELECT column_name, data_type, column_default,is_nullable
-            FROM v_catalog.columns
-            WHERE lower(table_name) = '%(table)s'
-            AND %(schema_condition)s
-            UNION ALL
-            SELECT column_name, data_type, '' as column_default, true as is_nullable
-            FROM v_catalog.view_columns
-            WHERE lower(table_name) = '%(table)s'
-            AND %(schema_condition)s
-        """ % {'table': table.lower(), 'schema_condition': schema_condition}))
-
+    
     final_tags = dict()
-    for row in connection.execute(s):
-        final_tags[row.column_name] = [owner_name]
-
+    for each in owner_res:
+        final_tags[each['table_name']] = each['owner_name']
     return final_tags
 
 
@@ -508,62 +505,11 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
         for each in connection.execute(projection_count_query):
             projection_count = each.pc
 
-        # Query for CLUSTER TYPE
-        cluster_type_qry = sql.text(dedent("""
-            SELECT 
-            CASE COUNT(*) 
-                WHEN 0 
-                THEN 'Enterprise' 
-                ELSE 'Eon' 
-            END AS database_mode 
-            FROM v_catalog.shards
-        """ % {'schema_condition': schema_condition}))
-
-        communal_storage_path = sql.text(dedent("""
-            SELECT location_path from storage_locations 
-                WHERE sharing_type = 'COMMUNAL'
-        """ % {'schema_condition': schema_condition}))
-
-        cluster_type = ""
-        communical_path = ""
-        cluster_type_res = connection.execute(cluster_type_qry)
-        for each in cluster_type_res:
-
-            cluster_type = each.database_mode
-            if cluster_type.lower() == 'eon':
-                for each in connection.execute(communal_storage_path):
-                    communical_path += str(each.location_path) + " | "
-
-        # CLUSTER SIZE
-        # cluster_size_qry = sql.text(dedent("""
-        #     SELECT
-        #         host_name,
-        #         processor_count,
-        #         processor_core_count,
-        #         processor_description,
-        #         ROUND(total_memory_bytes / 1024^3, 2) total_memory_gbytes
-        #         FROM V_MONITOR.HOST_RESOURCES
-
-        #         select (SUM(disk_space_used_mb) //1024 ) as cluster_size
-        #         from disk_storage
-        # """ % {'schema_condition': schema_condition}))
-
-        cluster__size = sql.text(dedent("""
-            select ROUND(SUM(disk_space_used_mb) //1024 ) as cluster_size
-            from disk_storage
-        """ % {'schema_condition': schema_condition}))
-
         UDL_LANGUAGE = sql.text(dedent("""
             SELECT lib_name , description 
                 FROM USER_LIBRARIES
             WHERE lower(schema_name) = '%(schema)s'
         """ % {'schema_condition': schema_condition, "schema": schema}))
-        cluster_size = ""
-        # for each in connection.execute(cluster_size_qry):
-        #     cluster_size = str(each.total_memory_gbytes) + " GB"
-
-        for each in connection.execute(cluster__size):
-            cluster_size = str(each.cluster_size) + " GB"
 
         # UDX list
         UDX_functions_qry = sql.text(dedent("""
@@ -577,39 +523,85 @@ def _get_schema_keys(self, connection, db_name, schema) -> dict:
         for each in connection.execute(UDX_functions_qry):
             udx_list += each.function_name + ", "
 
-        subclusters = ""
-        # SUBCLUSTER_QUERY = sql.text(dedent("""
-        #     SELECT 
-        #         subcluster_name
-        #     FROM 
-        #         subclusters
-        # """ % {'schema': schema, 'schema_condition': schema_condition}))
-        
-        SUBCLUSTER_SIZE = sql.text(dedent("""
-                        SELECT subclusters.subcluster_name , CAST(sum(disk_space_used_mb // 1024) as varchar(10)) as subclustersize from subclusters  
-                        inner join disk_storage using (node_name) 
-                        group by subclusters.subcluster_name
-                         """ % {'schema': schema, 'schema_condition': schema_condition}))
-        
-        
-        for data in connection.execute(SUBCLUSTER_SIZE):
-            subclusters += f"{data['subcluster_name']} -- {data['subclustersize']} GB |  "
-
         # UDX Language
-
         user_defined_library = ""
         for data in connection.execute(UDL_LANGUAGE):
-            # user_defined_library = {"lib_name": data['lib_name'] , 'language' : data['description']}
             user_defined_library += f"{data['lib_name']} -- {data['description']} |  "
 
         return {"projection_count": projection_count,
-                "cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
-                'udx_list': udx_list , 'Udx_langauge' : user_defined_library , "communinal_storage_path": communical_path}
+                'udx_list': udx_list , 'Udx_langauge' : user_defined_library }
 
     except Exception as e:
         print("Exception in _get_schema_keys from vertica ")
 
 
+def _get_database_keys(self, connection, db_name) -> dict:
+    try:
+        
+        # Query for CLUSTER TYPE
+        cluster_type_qry = sql.text(dedent("""
+            SELECT 
+            CASE COUNT(*) 
+                WHEN 0 
+                THEN 'Enterprise' 
+                ELSE 'Eon' 
+            END AS database_mode 
+            FROM v_catalog.shards
+        """ ))
+
+        communal_storage_path = sql.text(dedent("""
+            SELECT location_path from storage_locations 
+                WHERE sharing_type = 'COMMUNAL'
+        """ ))
+
+        cluster_type = ""
+        communical_path = ""
+        communal_data_res = connection.execute(communal_storage_path)
+        cluster_type_res = connection.execute(cluster_type_qry)
+        for each in cluster_type_res:
+            cluster_type = each.database_mode
+            if cluster_type.lower() == 'eon':
+                for each in communal_data_res:
+                    communical_path += str(each.location_path) + " | "
+
+        SUBCLUSTER_SIZE = sql.text(dedent("""
+                        SELECT subclusters.subcluster_name , CAST(sum(disk_space_used_mb // 1024) as varchar(10)) as subclustersize from subclusters  
+                        inner join disk_storage using (node_name) 
+                        group by subclusters.subcluster_name
+                         """))
+        
+        subclusters = " "
+        for data in connection.execute(SUBCLUSTER_SIZE):
+            subclusters += f"{data['subcluster_name']} -- {data['subclustersize']} GB |  "
+        
+        cluster__size = sql.text(dedent("""
+            select ROUND(SUM(disk_space_used_mb) //1024 ) as cluster_size
+            from disk_storage
+        """ ))
+        cluster_size = ""
+        for each in connection.execute(cluster__size):
+            cluster_size = str(each.cluster_size) + " GB"
+
+        
+        return {"cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
+                "communinal_storage_path": communical_path}
+        
+    except Exception as e:
+        print("Exception in _get_database_keys")
+        
+def _get_properties_keys(self, connection, db_name, schema, level=None) -> dict:
+    try:
+        properties_keys = dict()
+        if level == "schema":
+            properties_keys = _get_schema_keys(self, connection, db_name, schema)
+        if level == "database":
+            properties_keys = _get_database_keys(self, connection, db_name)
+            print("--->>>"*20)
+        return properties_keys 
+    except Exception as e:
+        print("Error in finding schema keys in vertica ")
+        
+        
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
@@ -618,7 +610,7 @@ VerticaDialect._get_extra_tags = _get_extra_tags
 VerticaDialect.get_projection = get_projection
 VerticaDialect.get_table_comment = get_table_comment
 VerticaDialect.get_projection_comment = get_projection_comment
-VerticaDialect._get_schema_keys = _get_schema_keys
+VerticaDialect._get_properties_keys = _get_properties_keys
 
 
 class VerticaConfig(BasicSQLAlchemyConfig):
@@ -637,7 +629,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica")
+        super().__init__(config, ctx, "verticaABCD")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":

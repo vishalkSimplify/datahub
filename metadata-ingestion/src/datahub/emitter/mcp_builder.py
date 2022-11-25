@@ -86,16 +86,6 @@ class DatabaseKey(PlatformKey):
 
 class SchemaKey(DatabaseKey):
     db_schema: str = Field(alias="schema")
-    numberOfProjection: Optional[str]
-    
-    # cluster related data
-    clusterType : Optional[str] =  None
-    clusterSize : Optional[str] = None
-    subClusters : Optional[str] = None
-    communalStoragePath : Optional[str] = None
-    
-    udxsFunctions : Optional[str] = None
-    UDXsLanguage : Optional[str] = None
     
 
 class ProjectIdKey(PlatformKey):
@@ -203,7 +193,7 @@ def gen_containers(
     description: Optional[str] = None,
     owner_urn: Optional[str] = None,
     external_url: Optional[str] = None,
-    tags: Optional[List[str]] = ["Hey", "There"],
+    tags: Optional[List[str]] = None,
     qualified_name: Optional[str] = None,
 ) -> Iterable[MetadataWorkUnit]:
     container_urn = make_container_urn(
