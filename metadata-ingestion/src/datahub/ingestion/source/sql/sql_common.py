@@ -45,6 +45,7 @@ from datahub.emitter.mcp_builder import (
     add_dataset_to_container,
     add_domain_to_entity_wu,
     gen_containers,
+    wrap_aspect_as_workunit
 )
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.workunit import MetadataWorkUnit
@@ -485,6 +486,24 @@ profiling_flags_to_report = [
 ]
 
 
+class SchemaKeyHelper(SchemaKey):
+    numberOfProjection: Optional[str]
+    
+    # clusterType : Optional[str] =  None
+    # clusterSize : Optional[str] = None
+    # subClusters : Optional[str] = None
+    # communalStoragePath : Optional[str] = None
+    
+    udxsFunctions : Optional[str] = None
+    UDXsLanguage : Optional[str] = None
+
+class DatabaseKeyHelper(DatabaseKey):
+    clusterType : Optional[str] =  None
+    clusterSize : Optional[str] = None
+    subClusters : Optional[str] = None
+    communalStoragePath : Optional[str] = None
+
+
 class SQLAlchemySource(StatefulIngestionSourceBase):
     """A Base class for all SQL Sources that use SQLAlchemy to extend"""
 
@@ -575,42 +594,51 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
     def gen_schema_key(self, db_name: str, schema: str) -> PlatformKey:
         try:
-            all_schema_keys = dict()
+            all_properties_keys = dict()
             for inspector in self.get_inspectors():
      
-                all_schema_keys = inspector._get_schema_keys(db_name , schema)
+                all_properties_keys = inspector._get_properties_keys(db_name , schema, level='schema')
 
             
-            return SchemaKey(
+            return SchemaKeyHelper(
                 database=db_name,
                 schema=schema,
                 platform=self.platform,
                 instance=self.config.platform_instance,
-                
-                numberOfProjection = all_schema_keys.get("projection_count", ""),
-                # clusterType = all_schema_keys.get("cluster_type", ""),
-                # clusterSize = all_schema_keys.get("cluster_size", ""),
-                # subClusterCount = all_schema_keys.get("Subcluster", ""),
-                
-                udxsFunctions = all_schema_keys.get("udx_list", ""),
-                UDXsLanguage = all_schema_keys.get("Udx_langauge", ""),
                 backcompat_instance_for_guid=self.config.env,
+                
+                numberOfProjection = all_properties_keys.get("projection_count", ""),
+                udxsFunctions = all_properties_keys.get("udx_list", ""),
+                UDXsLanguage = all_properties_keys.get("Udx_langauge", ""),
             )
         except Exception as e:
             traceback.print_exc()
             print("Hey something went wrong, while gettting schema in gen schema key")
-    def gen_database_key(self, database: str) -> PlatformKey:
-        return DatabaseKey(
-            database=database,
-            platform=self.platform,
-            instance=self.config.platform_instance,
-            backcompat_instance_for_guid=self.config.env,
             
-            clusterType = "EON",
-            clusterSize = "256 GB",
-            subClusterCount = "67",
-        )
-
+            
+    def gen_database_key(self, database: str) -> PlatformKey:
+        try:
+            all_properties_keys = dict()
+            for inspector in self.get_inspectors():
+                all_properties_keys = inspector._get_properties_keys(database , "schema", level='database')
+                
+            return DatabaseKeyHelper(
+                database=database,
+                platform=self.platform,
+                instance=self.config.platform_instance,
+                backcompat_instance_for_guid=self.config.env,
+                
+                
+                clusterType = all_properties_keys.get("cluster_type", "AMAN's CLuster"),
+                clusterSize = all_properties_keys.get("cluster_size", "8999 GB"),
+                subClusters = all_properties_keys.get("Subcluster", "MANY"),
+                communalStoragePath = all_properties_keys.get("communinal_storage_path", "/dev/sda1"),
+            )
+        except Exception as e:
+            traceback.print_exc()
+            print("Hey something went wrong, while gettting Generation of database key")
+            
+            
     def gen_database_containers(self, database: str) -> Iterable[MetadataWorkUnit]:
         domain_urn = self._gen_domain_urn(database)
 
@@ -700,9 +728,6 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                     profile_requests += list(
                         self.loop_profiler_requests_for_projections(inspector, schema, sql_config)
                     )
-                    # loop_profiler_requests_for_projections
-                    # print("==="*70)
-                    # print(profile_requests)
 
             if profiler and profile_requests:
                 yield from self.loop_profiler(
@@ -809,6 +834,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
         tables_seen: Set[str] = set()
         try:
+            table_tags = self.get_extra_tags(inspector, schema, "table")
+            
             for table in inspector.get_table_names(schema):
                 schema, table = self.standardize_schema_table_names(
                     schema=schema, entity=table
@@ -832,7 +859,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
                 try:
                     yield from self._process_table(
-                        dataset_name, inspector, schema, table, sql_config
+                        dataset_name, inspector, schema, table, sql_config, table_tags
                     )
                 except Exception as e:
                     logger.warning(
@@ -853,6 +880,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         projections_seen: Set[str] = set()
       
         try:
+            table_tags = self.get_extra_tags(inspector, schema, "projection")
             for projection in inspector.get_projection_names(schema):
                
                 schema, projection = self.standardize_schema_table_names(
@@ -877,7 +905,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
                 try:
                     yield from self._process_projections(
-                        dataset_name, inspector, schema, projection, sql_config
+                        dataset_name, inspector, schema, projection, sql_config, table_tags
                     )
                 except Exception as e:
                     logger.warning(
@@ -898,6 +926,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         schema: str,
         projection: str,
         sql_config: SQLAlchemyConfig,
+        table_tags: Dict[str,str] = dict()
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
         columns = inspector.get_columns(projection, schema)
    
@@ -954,7 +983,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             self.report.report_workunit(lineage_wu)
             yield lineage_wu
 
-        extra_tags = self.get_extra_tags(inspector, schema, projection)
+        # extra_tags = self.get_extra_tags(inspector, schema, projection)
+        extra_tags = list()
         pk_constraints: dict = inspector.get_pk_constraint(projection, schema)
         
         foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, projection)
@@ -973,6 +1003,15 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         )
         dataset_snapshot.aspects.append(schema_metadata)
         db_name = self.get_db_name(inspector)
+        # table_tags = self.get_extra_tags(inspector, schema, table)
+        
+        tags_to_add = []
+        if table_tags:
+            tags_to_add.extend(
+                [make_tag_urn(f"{table_tags.get(projection)}")]
+            )
+            yield self.gen_tags_aspect_workunit(dataset_urn, tags_to_add)
+            
         yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
         mce = MetadataChangeEvent(proposedSnapshot=dataset_snapshot)
         wu = SqlWorkUnit(id=dataset_name, mce=mce)
@@ -1024,7 +1063,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
 
     def get_extra_tags(
         self, inspector: Inspector, schema: str, table: str
-    ) -> Optional[Dict[str, List[str]]]:
+    ) -> Optional[Dict[str, str]]:
         try:
            
             tags = inspector._get_extra_tags(table, schema)
@@ -1041,6 +1080,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         schema: str,
         table: str,
         sql_config: SQLAlchemyConfig,
+        table_tags: Dict[str,str] = dict()
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
         columns = self._get_columns(dataset_name, inspector, schema, table)
         dataset_urn = make_dataset_urn_with_platform_instance(
@@ -1095,7 +1135,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             self.report.report_workunit(lineage_wu)
             yield lineage_wu
 
-        extra_tags = self.get_extra_tags(inspector, schema, table)
+        # extra_tags = self.get_extra_tags(inspector, schema, table)
+        extra_tags = list()
         pk_constraints: dict = inspector.get_pk_constraint(table, schema)
         
         foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, table)
@@ -1114,6 +1155,16 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         )
         dataset_snapshot.aspects.append(schema_metadata)
         db_name = self.get_db_name(inspector)
+        
+        # table_tags = self.get_extra_tags(inspector, schema, table)
+        
+        tags_to_add = []
+        if table_tags:
+            tags_to_add.extend(
+                [make_tag_urn(f"{table_tags.get(table)}")]
+            )
+            yield self.gen_tags_aspect_workunit(dataset_urn, tags_to_add)
+            
         yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
         mce = MetadataChangeEvent(proposedSnapshot=dataset_snapshot)
         wu = SqlWorkUnit(id=dataset_name, mce=mce)
@@ -1142,6 +1193,16 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             sql_config=sql_config,
         )
 
+    def gen_tags_aspect_workunit(
+        self, dataset_urn: str, tags_to_add: List[str]
+    ) -> MetadataWorkUnit:
+        tags = GlobalTagsClass(
+            tags=[TagAssociationClass(tag_to_add) for tag_to_add in tags_to_add]
+        )
+        wu = wrap_aspect_as_workunit("dataset", dataset_urn, "globalTags", tags)
+        self.report.report_workunit(wu)
+        return wu
+    
     def get_table_properties(
         self, inspector: Inspector, schema: str, table: str
     ) -> Tuple[Optional[str], Dict[str, str], Optional[str]]:
@@ -1319,6 +1380,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         sql_config: SQLAlchemyConfig,
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
         try:
+            table_tags = self.get_extra_tags(inspector, schema, "view")
             for view in inspector.get_view_names(schema):
                 schema, view = self.standardize_schema_table_names(
                     schema=schema, entity=view
@@ -1341,6 +1403,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
                         schema=schema,
                         view=view,
                         sql_config=sql_config,
+                        table_tags=table_tags,
                     )
                 except Exception as e:
                     logger.warning(
@@ -1359,6 +1422,7 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         schema: str,
         view: str,
         sql_config: SQLAlchemyConfig,
+        table_tags: Dict[str,str] = dict()
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
         try:
             columns = inspector.get_columns(view, schema)
@@ -1369,7 +1433,8 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             )
             schema_metadata = None
         else:
-            extra_tags = self.get_extra_tags(inspector, schema, view)
+            # extra_tags = self.get_extra_tags(inspector, schema, view)
+            extra_tags = dict()
             schema_fields = self.get_schema_fields(dataset_name, columns, tags=extra_tags)
             schema_metadata = get_schema_metadata(
                 self.report,
@@ -1406,6 +1471,15 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
         db_name = self.get_db_name(inspector)
         yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
 
+        # table_tags = self.get_extra_tags(inspector, schema, table)
+        tags_to_add = []
+        if table_tags:
+            tags_to_add.extend(
+                [make_tag_urn(f"{table_tags.get(view)}")]
+            )
+        
+            yield self.gen_tags_aspect_workunit(dataset_urn, tags_to_add)
+            
         # Add view to the checkpoint state
         self.stale_entity_removal_handler.add_entity_to_state("view", dataset_urn)
 
@@ -1733,9 +1807,6 @@ class SQLAlchemySource(StatefulIngestionSourceBase):
             platform=platform,
             profiler_args=self.get_profile_args(),
         ):
-            # print("888"*66)
-            # print(request, profile)
-            # print("888"*66)
             if profile is None:
                 continue
             dataset_name = request.pretty_name

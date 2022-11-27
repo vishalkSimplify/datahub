@@ -1,6 +1,6 @@
 // @GENERATOR:play-routes-compiler
 // @SOURCE:/root/datahub/datahub-frontend/conf/routes
-// @DATE:Mon Oct 10 17:22:23 IST 2022
+// @DATE:Fri Nov 18 06:26:01 EST 2022
 
 import play.api.mvc.Call
 
