@@ -36,9 +36,9 @@ from datahub.ingestion.api.decorators import (
 )
 
 
-from datahub.ingestion.source.sql.sql_common import (
-    BasicSQLAlchemyConfig,
-    SQLAlchemySource,
+from datahub.ingestion.source.vertica.common import (
+    Vertica_BasicSQLAlchemyConfig,
+    Vertica_SQLAlchemySource,
 
 )
 
@@ -596,7 +596,6 @@ def _get_properties_keys(self, connection, db_name, schema, level=None) -> dict:
             properties_keys = _get_schema_keys(self, connection, db_name, schema)
         if level == "database":
             properties_keys = _get_database_keys(self, connection, db_name)
-            print("--->>>"*20)
         return properties_keys 
     except Exception as e:
         print("Error in finding schema keys in vertica ")
@@ -613,7 +612,7 @@ VerticaDialect.get_projection_comment = get_projection_comment
 VerticaDialect._get_properties_keys = _get_properties_keys
 
 
-class VerticaConfig(BasicSQLAlchemyConfig):
+class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
     # defaults
     scheme: str = pydantic.Field(default="vertica+vertica_python")
 
@@ -627,7 +626,7 @@ class VerticaConfig(BasicSQLAlchemyConfig):
 @support_status(SupportStatus.TESTING)
 @capability(SourceCapability.PLATFORM_INSTANCE, "Enabled by default")
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
-class VerticaSource(SQLAlchemySource):
+class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
         super().__init__(config, ctx, "verticaABCD")
 
