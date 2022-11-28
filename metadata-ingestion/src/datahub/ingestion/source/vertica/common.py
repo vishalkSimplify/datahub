@@ -18,6 +18,7 @@ from typing import (
     Type,
     Union,
 )
+
 from urllib.parse import quote_plus
 
 import pydantic
@@ -47,6 +48,7 @@ from datahub.emitter.mcp_builder import (
     gen_containers,
     wrap_aspect_as_workunit
 )
+import datahub.emitter.mce_builder as builder
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.source.ge_profiling_config import GEProfilingConfig
@@ -93,6 +95,8 @@ from datahub.metadata.schema_classes import (
     TagAssociationClass,
     UpstreamClass,
     ViewPropertiesClass,
+    MLModelDeploymentPropertiesClass,
+    MLModelPropertiesClass
 )
 from datahub.telemetry import telemetry
 from datahub.utilities.lossy_collections import LossyList
@@ -104,6 +108,7 @@ if TYPE_CHECKING:
         DatahubGEProfiler,
         GEProfilerRequest,
     )
+    
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -194,6 +199,7 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
     tables_scanned: int = 0
     views_scanned: int = 0
     Projection_scanned: int = 0
+    models_scanned: int = 0
     entities_profiled: int = 0
     filtered: LossyList[str] = field(default_factory=LossyList)
 
@@ -209,6 +215,8 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
             self.views_scanned += 1
         elif ent_type == "projection":
             self.Projection_scanned += 1
+        elif ent_type == "models":
+            self.models_scanned += 1
         else:
             raise KeyError(f"Unknown entity {ent_type}.")
 
@@ -258,6 +266,10 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns for views to filter in ingestion. Note: Defaults to table_pattern if not specified. Specify regex to match the entire view name in database.schema.view format. e.g. to match all views starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
     )
+    models_pattern: AllowDenyPattern = Field(
+        default=AllowDenyPattern.allow_all(),
+        description="Regex patterns for views to filter in ingestion. Note: Defaults to table_pattern if not specified. Specify regex to match the entire view name in database.schema.view format. e.g. to match all views starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
+    )
     profile_pattern: AllowDenyPattern = Field(
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns to filter tables for profiling during ingestion. Allowed by the `table_pattern`.",
@@ -274,6 +286,10 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
         default=True, description="Whether tables should be ingested."
     )
     include_projections: Optional[bool] = Field(
+        default=True, description="Whether projections should be ingested."
+    )
+    
+    include_models: Optional[bool] = Field(
         default=True, description="Whether projections should be ingested."
     )
 
@@ -466,6 +482,7 @@ config_options_to_report = [
     "include_views",
     "include_tables",
     "include_projections"
+    "include_models"
 ]
 
 # flags to emit telemetry for
@@ -487,13 +504,7 @@ profiling_flags_to_report = [
 
 
 class SchemaKeyHelper(SchemaKey):
-    numberOfProjection: Optional[str]
-    
-    # clusterType : Optional[str] =  None
-    # clusterSize : Optional[str] = None
-    # subClusters : Optional[str] = None
-    # communalStoragePath : Optional[str] = None
-    
+    numberOfProjection: Optional[str]    
     udxsFunctions : Optional[str] = None
     UDXsLanguage : Optional[str] = None
 
@@ -721,6 +732,8 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                     
                 if sql_config.include_projections:
                     yield from self.loop_projections(inspector, schema,sql_config)
+                if sql_config.include_models:
+                    yield from self.loop_models(inspector, schema,sql_config)
                 if profiler:
                     profile_requests += list(
                         self.loop_profiler_requests(inspector, schema, sql_config)
@@ -733,6 +746,8 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 yield from self.loop_profiler(
                     profile_requests, profiler, platform=self.platform
                 )
+                
+            
 
         # Clean up stale entities.
         yield from self.stale_entity_removal_handler.gen_removed_entity_workunits()
@@ -743,17 +758,21 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
     ) -> Tuple[str, str]:
         # Some SQLAlchemy dialects need a standardization step to clean the schema
         # and table names. See BigQuery for an example of when this is useful.
+       
         return schema, entity
 
     def get_identifier(
         self, *, schema: str, entity: str, inspector: Inspector, **kwargs: Any
-    ) -> str:
+    ) -> str:  
+       
         # Many SQLAlchemy dialects have three-level hierarchies. This method, which
         # subclasses can override, enables them to modify the identifiers as needed.
         if hasattr(self.config, "get_identifier"):
             # This path is deprecated and will eventually be removed.
+          
             return self.config.get_identifier(schema=schema, table=entity)  # type: ignore
         else:
+            
             return f"{schema}.{entity}"
 
     def get_foreign_key_metadata(
@@ -918,7 +937,50 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             self.report.report_failure(f"{schema}", f"Tables error: {e}")
         
         
-        
+    def loop_models(  # noqa: C901
+        self,
+        inspector: Inspector,
+        schema: str,
+        sql_config: SQLAlchemyConfig,
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        models_seen: Set[str] = set()
+        try:
+            # models_tags = self.get_extra_tags(inspector, schema, "table")
+            
+            for models in inspector.get_models_names(schema):
+                
+                schema, models = self.standardize_schema_table_names(
+                    schema=schema, entity=models
+                )
+                dataset_name = self.get_identifier(
+                    schema=schema, entity=models, inspector=inspector
+                )
+               
+                dataset_name = self.normalise_dataset_name(dataset_name)
+
+                if dataset_name not in models_seen:
+                    models_seen.add(dataset_name)
+                else:
+                    logger.debug(f"{dataset_name} has already been seen, skipping...")
+                    continue
+
+                self.report.report_entity_scanned(dataset_name, ent_type="models")
+                if not sql_config.table_pattern.allowed(dataset_name):
+                    self.report.report_dropped(dataset_name)
+                    continue
+
+                try:
+                    yield from self._process_models(
+                        dataset_name, inspector, schema, models, sql_config,                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Unable to ingest {schema}.{models} due to an exception.\n {traceback.format_exc()}"
+                    )
+                    self.report.report_warning(
+                        f"{schema}.{models}", f"Ingestion error: {e}"
+                    )
+        except Exception as e:
+            self.report.report_failure(f"{schema}", f"Tables error: {e}")    
     def _process_projections(
         self,
         dataset_name: str,
@@ -1193,6 +1255,114 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             sql_config=sql_config,
         )
 
+    
+    
+    def _process_models(
+        self,
+        dataset_name: str,
+        inspector: Inspector,
+        schema: str,
+        table: str,
+        sql_config: SQLAlchemyConfig,
+
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        # columns = self._get_columns(dataset_name, inspector, schema, table)
+        columns = []
+        dataset_urn = make_dataset_urn_with_platform_instance(
+            self.platform,
+            dataset_name,
+            self.config.platform_instance,
+            self.config.env,
+        )
+        dataset_snapshot = DatasetSnapshot(
+            urn=dataset_urn,
+            aspects=[StatusClass(removed=False)],
+        )
+        # Add table to the checkpoint state
+        self.stale_entity_removal_handler.add_entity_to_state("model", dataset_urn)
+        description, properties, location_urn = self.get_model_properties(
+            inspector, schema, table
+        )
+
+        # Tablename might be different from the real table if we ran some normalisation ont it.
+        # Getting normalized table name from the dataset_name
+        # Table is the last item in the dataset name
+        normalised_table = table
+        splits = dataset_name.split(".")
+        if splits:
+            normalised_table = splits[-1]
+            if properties and normalised_table != table:
+                properties["original_table_name"] = table
+
+        dataset_properties = DatasetPropertiesClass(
+            name=normalised_table,
+            description=description,
+            customProperties=properties,
+        )
+        dataset_snapshot.aspects.append(dataset_properties)
+
+       
+
+        # extra_tags = self.get_extra_tags(inspector, schema, table)
+        extra_tags = list()
+        pk_constraints: dict = inspector.get_pk_constraint(table, schema)
+        
+        foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, table)
+    
+        schema_fields = self.get_schema_fields(
+            dataset_name, columns, pk_constraints, tags=extra_tags
+        )
+        schema_metadata = get_schema_metadata(
+            self.report,
+            dataset_name,
+            self.platform,
+            columns,
+            pk_constraints,
+            foreign_keys,
+            schema_fields,
+        )
+        dataset_snapshot.aspects.append(schema_metadata)
+        db_name = self.get_db_name(inspector)
+        
+        # table_tags = self.get_extra_tags(inspector, schema, table)
+        
+        tags_to_add = []
+        # if table_tags:
+        #     tags_to_add.extend(
+        #         [make_tag_urn(f"{table_tags.get(table)}")]
+        #     )
+        #     yield self.gen_tags_aspect_workunit(dataset_urn, tags_to_add)
+            
+        yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
+        mce = MetadataChangeEvent(proposedSnapshot=dataset_snapshot)
+        wu = SqlWorkUnit(id=dataset_name, mce=mce)
+        self.report.report_workunit(wu)
+        yield wu
+        dpi_aspect = self.get_dataplatform_instance_aspect(dataset_urn=dataset_urn)
+        if dpi_aspect:
+            yield dpi_aspect
+        subtypes_aspect = MetadataWorkUnit(
+            id=f"{dataset_name}-subtypes",
+            mcp=MetadataChangeProposalWrapper(
+                entityType="dataset",
+                changeType=ChangeTypeClass.UPSERT,
+                entityUrn=dataset_urn,
+                aspectName="subTypes",
+                aspect=SubTypesClass(typeNames=["ML Models"]),
+            ),
+        )
+        self.report.report_workunit(subtypes_aspect)
+        yield subtypes_aspect
+
+        yield from self._get_domain_wu(
+            dataset_name=dataset_name,
+            entity_urn=dataset_urn,
+            entity_type="dataset",
+            sql_config=sql_config,
+        )
+        
+
+        
     def gen_tags_aspect_workunit(
         self, dataset_urn: str, tags_to_add: List[str]
     ) -> MetadataWorkUnit:
@@ -1269,6 +1439,40 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         properties = projection_info.get("properties", {})
         return description, properties, location
 
+
+    def get_model_properties(
+        self, inspector: Inspector, schema: str, model: str
+    ) -> Tuple[Optional[str], Dict[str, str], Optional[str]]:
+        description: Optional[str] = None
+        properties: Dict[str, str] = {}
+
+        # The location cannot be fetched generically, but subclasses may override
+        # this method and provide a location.
+        location: Optional[str] = None
+
+        try:
+            # SQLAlchemy stubs are incomplete and missing this method.
+            # PR: https://github.com/dropbox/sqlalchemy-stubs/pull/223.
+            table_info: dict = inspector.get_model_comment(model, schema)  # type: ignore
+        except NotImplementedError:
+            return description, properties, location
+        except ProgrammingError as pe:
+            # Snowflake needs schema names quoted when fetching table comments.
+            logger.debug(
+                f"Encountered ProgrammingError. Retrying with quoted schema name for schema {schema} and table {model}",
+                pe,
+            )
+            table_info: dict = inspector.get_model_comment(model, f'"{schema}"')  # type: ignore
+
+        description = table_info.get("text")
+        if type(description) is tuple:
+            # Handling for value type tuple which is coming for dialect 'db2+ibm_db'
+            description = table_info["text"][0]
+
+        # The "properties" field is a non-standard addition to SQLAlchemy's interface.
+        properties = table_info.get("properties", {})
+        return description, properties, location
+    
     def get_dataplatform_instance_aspect(
         self, dataset_urn: str
     ) -> Optional[SqlWorkUnit]:

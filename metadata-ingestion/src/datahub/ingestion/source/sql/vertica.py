@@ -86,6 +86,30 @@ def get_view_definition(self, connection, view_name, schema=None, **kw):
     return view_def
 
 
+
+def get_models_names(self, connection, schema=None, **kw):
+        
+        if schema is not None:
+            schema_condition = "lower(schema_name) = '%(schema)s'" % {'schema': schema.lower()}
+        else:
+            schema_condition = "1"
+
+       
+        get_models_sql = sql.text(dedent("""
+            SELECT model_name 
+            FROM models
+            WHERE lower(schema_name) =  '%(schema)s'
+            ORDER BY model_name
+        """ % {'schema': schema}))
+
+        c = connection.execute(get_models_sql)
+        
+        
+        return [row[0] for row in c]
+    
+
+
+    
 def get_columns(self, connection, table_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
@@ -443,6 +467,43 @@ def get_projection_comment(self, connection, projection_name, schema=None, **kw)
                            "Projection Cached": str(cached_projection)}}
 
 
+def get_model_comment(self, connection, model_name, schema=None, **kw):
+
+    if schema is not None:
+        schema_condition = "lower(schema_name) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+
+   
+    
+    model_used_by =  sql.text(dedent("""
+            select owner_name from models
+            where model_name = '%(model)s'
+            
+        """ % {'model': model_name }))
+    
+  
+    model_attr_name  = sql.text(dedent("""
+            SELECT 
+                GET_MODEL_ATTRIBUTE 
+                    ( USING PARAMETERS model_name='%(schema)s.%(model)s');
+            
+        """ % {'model': model_name,'schema': schema}))
+    
+    
+    
+    used_by = ""
+    attr_name = []
+    for data in connection.execute(model_used_by):
+        used_by = data['owner_name']
+        
+    for data in connection.execute(model_attr_name):
+       
+        attributes = {"attr_name":data[0],"attr_fields":data[1],"#_of_rows":data[2]}
+        attr_name.append(attributes)
+
+    return {"text": "This Vertica module is still is development Process", "properties": {"used_by": str(used_by), "Model_Attrributes ": str(attr_name)}}
+
 def _get_extra_tags(
     self, connection, name, schema=None
 ) -> Optional[Dict[str, str]]:
@@ -600,7 +661,7 @@ def _get_properties_keys(self, connection, db_name, schema, level=None) -> dict:
     except Exception as e:
         print("Error in finding schema keys in vertica ")
         
-        
+
 VerticaDialect.get_view_definition = get_view_definition
 VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
@@ -610,6 +671,9 @@ VerticaDialect.get_projection = get_projection
 VerticaDialect.get_table_comment = get_table_comment
 VerticaDialect.get_projection_comment = get_projection_comment
 VerticaDialect._get_properties_keys = _get_properties_keys
+VerticaDialect.get_models_names = get_models_names
+VerticaDialect.get_model_comment = get_model_comment
+
 
 
 class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
@@ -628,7 +692,7 @@ class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "verticaABCD")
+        super().__init__(config, ctx, "verticamodels")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
