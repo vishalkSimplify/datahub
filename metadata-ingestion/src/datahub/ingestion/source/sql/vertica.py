@@ -490,19 +490,53 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
             
         """ % {'model': model_name,'schema': schema}))
     
-    
-    
+   
     used_by = ""
     attr_name = []
+    attr_details = []
     for data in connection.execute(model_used_by):
         used_by = data['owner_name']
         
     for data in connection.execute(model_attr_name):
        
         attributes = {"attr_name":data[0],"attr_fields":data[1],"#_of_rows":data[2]}
+        
         attr_name.append(attributes)
+        
+    attributes_details = []
+    for data in attr_name:
+        attr_details_dict = dict()
+        attr_names = data['attr_name']
+        get_attr_details = sql.text(dedent("""
+                SELECT 
+                    GET_MODEL_ATTRIBUTE 
+                        ( USING PARAMETERS model_name='%(schema)s.%(model)s', attr_name='%(attr_name)s');
+                
+            """ % {'model': model_name,'schema': schema, 'attr_name': attr_names}))
+        
+        value_final = ""
+        for data in connection.execute(get_attr_details):
+            inner_string = ""
+            for inner_index, each in  enumerate(data):
+                if inner_index == 0:
+                    inner_string += str(each)
+                else:
+                    inner_string += " - " + str(each)
+                
+                
+            value_final += inner_string + ",  "
+        
+         
+        attr_details_dict = {"attr_name": attr_names , "Value": value_final}
+        attributes_details.append(attr_details_dict)
+        
+        # for putting in string and removed \n from data
+        # attr_details_dict = "attr_name : " + str(attr_names) + " , Value : " + str(value_final)
+        # attributes_details += str(attr_details_dict) 
+        
 
-    return {"text": "This Vertica module is still is development Process", "properties": {"used_by": str(used_by), "Model_Attrributes ": str(attr_name)}}
+    return {"text": "This Vertica module is still is development Process", "properties": {"used_by": str(used_by),
+            "Model_Attrributes ": str(attr_name),"Model Attributes_Description":str(attributes_details)}}
 
 def _get_extra_tags(
     self, connection, name, schema=None
