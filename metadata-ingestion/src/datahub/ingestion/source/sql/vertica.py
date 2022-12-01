@@ -122,7 +122,7 @@ def get_Oauth_names(self, connection, schema=None, **kw):
 def get_oauth_comment(self, connection, model_name, schema=None, **kw):
     
     get_oauth_comments = sql.text(dedent("""
-                        SELECT auth_oid ,is_auth_enabled, auth_parameters ,auth_priority ,address_priority from v_catalog.client_auth
+                        SELECT auth_oid ,is_auth_enabled, is_fallthrough_enabled,auth_parameters ,auth_priority ,address_priority from v_catalog.client_auth
                             WHERE auth_method = 'OAUTH'
 
                             """ ))
@@ -155,12 +155,13 @@ def get_oauth_comment(self, connection, model_name, schema=None, **kw):
         is_auth_enabled = data['is_auth_enabled']
         auth_priority = data['auth_priority']
         address_priority = data['address_priority']
+        is_fallthrough_enabled = data['is_fallthrough_enabled']
        
         
     # print(client_data)
     return {"text": "This Vertica module is still is development Process", "properties": {"discovery_url ": str(discovery_url),
             "client_id  ": str(client_id),"introspect_url ":str(introspect_url), "auth_oid ":str(auth_oid),"client_secret ":str(client_secret),
-            "is_auth_enabled":str(is_auth_enabled), "auth_priority ":str(auth_priority),"address_priority ":str(address_priority) }}
+            "is_auth_enabled":str(is_auth_enabled), "auth_priority ":str(auth_priority),"address_priority ":str(address_priority),"is_fallthrough_enabled":str(is_fallthrough_enabled), }}
     
     
     
@@ -562,6 +563,8 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
     for data in attr_name:
         attr_details_dict = dict()
         attr_names = data['attr_name']
+        attr_fields = str(data['attr_fields']).split(',')
+        
         get_attr_details = sql.text(dedent("""
                 SELECT 
                     GET_MODEL_ATTRIBUTE 
@@ -569,20 +572,40 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
                 
             """ % {'model': model_name,'schema': schema, 'attr_name': attr_names}))
         
-        value_final = ""
+        print("^^^^^^^^"*20)
+        print(get_attr_details)
+        
+        
+        value_final = dict()
+        attr_details_dict = {"attr_name": attr_names}
         for data in connection.execute(get_attr_details):
-            inner_string = ""
-            for inner_index, each in  enumerate(data):
-                if inner_index == 0:
-                    inner_string += str(each)
-                else:
-                    inner_string += " - " + str(each)
+            print(data)
+            print("*****"*30)
+            
+            if len(attr_fields) > 1:
+                
+                for index, each in enumerate(attr_fields):
+                    if each not in value_final:
+                        value_final[each] = list()
+                    value_final[each].append(data[index])
+                
+            else:
+                if attr_fields[0] not in value_final:
+                    value_final[attr_fields[0]] = list()
+                value_final[attr_fields[0]].append(data[0])
+                
+            # inner_string = ""
+            # for inner_index, each in  enumerate(data):
+            #     if inner_index == 0:
+            #         inner_string += str(each)
+            #     else:
+            #         inner_string += " - " + str(each)
                 
                 
-            value_final += inner_string + ",  "
+            # value_final += inner_string + ",  "
         
          
-        attr_details_dict = {"attr_name": attr_names , "Value": value_final}
+        attr_details_dict.update(value_final)
         attributes_details.append(attr_details_dict)
         
         # for putting in string and removed \n from data
