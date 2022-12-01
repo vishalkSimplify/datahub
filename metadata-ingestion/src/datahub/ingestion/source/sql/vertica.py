@@ -94,7 +94,7 @@ def get_models_names(self, connection, schema=None, **kw):
         else:
             schema_condition = "1"
 
-       
+        
         get_models_sql = sql.text(dedent("""
             SELECT model_name 
             FROM models
@@ -107,9 +107,64 @@ def get_models_names(self, connection, schema=None, **kw):
         
         return [row[0] for row in c]
     
-
+def get_Oauth_names(self, connection, schema=None, **kw):
 
     
+        get_oauth_sql = sql.text(dedent("""
+            SELECT auth_name from v_catalog.client_auth
+            WHERE auth_method = 'OAUTH'
+        """ % {'schema': schema}))
+        print("auth connection", schema)
+        c = connection.execute(get_oauth_sql)
+        
+        return [row[0] for row in c]
+
+def get_oauth_comment(self, connection, model_name, schema=None, **kw):
+    
+    get_oauth_comments = sql.text(dedent("""
+                        SELECT auth_oid ,is_auth_enabled, auth_parameters ,auth_priority ,address_priority from v_catalog.client_auth
+                            WHERE auth_method = 'OAUTH'
+
+                            """ ))
+    client_id = ""
+    client_secret = ""
+    for data in connection.execute(get_oauth_comments):
+        
+        whole_data = str(data['auth_parameters']).split(", ")
+        client_id_data = whole_data[0].split("=")
+        if client_id_data:
+            # client_data.update({client_id_data[0] : client_id_data[1]})
+            client_id = client_id_data[1]
+            
+        client_secret_data = whole_data[1].split("=")
+        if client_secret_data:
+            # client_data.update({client_secret_data[0] : client_secret_data[1]})
+            client_secret = client_secret_data[1]
+        
+        client_discorvery_url =  whole_data[2].split("=")
+        if client_discorvery_url:
+            # client_data.update({client_secret_data[0] : client_secret_data[1]})
+            discovery_url = client_discorvery_url[1]
+            
+        client_introspect_url =  whole_data[3].split("=")
+        if client_introspect_url:
+            # client_data.update({client_secret_data[0] : client_secret_data[1]})
+            introspect_url = client_introspect_url[1]
+            
+        auth_oid = data['auth_oid']
+        is_auth_enabled = data['is_auth_enabled']
+        auth_priority = data['auth_priority']
+        address_priority = data['address_priority']
+       
+        
+    # print(client_data)
+    return {"text": "This Vertica module is still is development Process", "properties": {"discovery_url ": str(discovery_url),
+            "client_id  ": str(client_id),"introspect_url ":str(introspect_url), "auth_oid ":str(auth_oid),"client_secret ":str(client_secret),
+            "is_auth_enabled":str(is_auth_enabled), "auth_priority ":str(auth_priority),"address_priority ":str(address_priority) }}
+    
+    
+    
+      
 def get_columns(self, connection, table_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(table_schema) = '%(schema)s'" % {'schema': schema.lower()}
@@ -536,7 +591,7 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
         
 
     return {"text": "This Vertica module is still is development Process", "properties": {"used_by": str(used_by),
-            "Model_Attrributes ": str(attr_name),"Model Attributes_Description":str(attributes_details)}}
+            "Model Attrributes ": str(attr_name),"Model Specifications":str(attributes_details)}}
 
 def _get_extra_tags(
     self, connection, name, schema=None
@@ -707,6 +762,8 @@ VerticaDialect.get_projection_comment = get_projection_comment
 VerticaDialect._get_properties_keys = _get_properties_keys
 VerticaDialect.get_models_names = get_models_names
 VerticaDialect.get_model_comment = get_model_comment
+VerticaDialect.get_Oauth_names = get_Oauth_names
+VerticaDialect.get_oauth_comment = get_oauth_comment
 
 
 
@@ -726,7 +783,7 @@ class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "verticamodels")
+        super().__init__(config, ctx, "verticentity")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":

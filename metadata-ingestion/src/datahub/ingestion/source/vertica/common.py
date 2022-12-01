@@ -200,6 +200,8 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
     views_scanned: int = 0
     Projection_scanned: int = 0
     models_scanned: int = 0
+    Outh_scanned: int = 0
+    entities_collected: int = 0
     entities_profiled: int = 0
     filtered: LossyList[str] = field(default_factory=LossyList)
 
@@ -217,6 +219,11 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
             self.Projection_scanned += 1
         elif ent_type == "models":
             self.models_scanned += 1
+        elif ent_type == "OAuth":
+            self.Outh_scanned += 1
+            
+        elif ent_type == "entities":
+            self.entities_collected += 1
         else:
             raise KeyError(f"Unknown entity {ent_type}.")
 
@@ -240,7 +247,7 @@ class SQLAlchemyStatefulIngestionConfig(StatefulStaleMetadataRemovalConfig):
     """
 
     _entity_types: List[str] = pydantic.Field(
-        default=["assertion", "container", "table", "view","Projection"]
+        default=["assertion", "container", "table", "view","Projection","models","Outh","entities"]
     )
 
 
@@ -270,6 +277,10 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns for views to filter in ingestion. Note: Defaults to table_pattern if not specified. Specify regex to match the entire view name in database.schema.view format. e.g. to match all views starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
     )
+    oauth_pattern: AllowDenyPattern = Field(
+        default=AllowDenyPattern.allow_all(),
+        description="Regex patterns for views to filter in ingestion. Note: Defaults to table_pattern if not specified. Specify regex to match the entire view name in database.schema.view format. e.g. to match all views starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
+    )
     profile_pattern: AllowDenyPattern = Field(
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns to filter tables for profiling during ingestion. Allowed by the `table_pattern`.",
@@ -290,9 +301,14 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
     )
     
     include_models: Optional[bool] = Field(
-        default=True, description="Whether projections should be ingested."
+        default=True, description="Whether Models should be ingested."
     )
-
+    include_Outh: Optional[bool] = Field(
+        default=True, description="Whether OAuth should be ingested."
+    )
+    entities : Optional[bool] =  Field(
+        default=True, description="Whether entities should be Ingested."
+    )
     profiling: GEProfilingConfig = GEProfilingConfig()
     # Custom Stateful Ingestion settings
     stateful_ingestion: Optional[SQLAlchemyStatefulIngestionConfig] = None
@@ -481,8 +497,10 @@ def get_schema_metadata(
 config_options_to_report = [
     "include_views",
     "include_tables",
-    "include_projections"
-    "include_models"
+    "include_projections",
+    "include_models",
+    "include_Outh"
+    "entities"
 ]
 
 # flags to emit telemetry for
@@ -734,6 +752,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                     yield from self.loop_projections(inspector, schema,sql_config)
                 if sql_config.include_models:
                     yield from self.loop_models(inspector, schema,sql_config)
+                
                 if profiler:
                     profile_requests += list(
                         self.loop_profiler_requests(inspector, schema, sql_config)
@@ -746,7 +765,12 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 yield from self.loop_profiler(
                     profile_requests, profiler, platform=self.platform
                 )
+            
+          
                 
+            Outh_schema = "Entities"   
+            if sql_config.include_Outh:
+                yield from self.loop_Oauth(inspector,Outh_schema,sql_config)               
             
 
         # Clean up stale entities.
@@ -953,7 +977,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                     schema=schema, entity=models
                 )
                 dataset_name = self.get_identifier(
-                    schema=schema, entity=models, inspector=inspector
+                    schema="Entities", entity=models, inspector=inspector
                 )
                
                 dataset_name = self.normalise_dataset_name(dataset_name)
@@ -981,6 +1005,156 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                     )
         except Exception as e:
             self.report.report_failure(f"{schema}", f"Tables error: {e}")    
+    
+    def loop_Oauth(  # noqa: C901
+        self,
+        inspector: Inspector,
+        schema: str,
+        sql_config: SQLAlchemyConfig,
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        oauth_seen: Set[str] = set()
+        try:
+            # models_tags = self.get_extra_tags(inspector, schema, "table")
+            
+            for OAuth in inspector.get_Oauth_names(schema):
+              
+                schema, OAuth = self.standardize_schema_table_names(
+                    schema=schema, entity=OAuth
+                )
+                dataset_name = self.get_identifier(
+                    schema=schema, entity=OAuth, inspector=inspector
+                )
+               
+                dataset_name = self.normalise_dataset_name(dataset_name)
+
+                if dataset_name not in oauth_seen:
+                    oauth_seen.add(dataset_name)
+                else:
+                    logger.debug(f"{dataset_name} has already been seen, skipping...")
+                    continue
+
+                self.report.report_entity_scanned(dataset_name, ent_type="OAuth")
+                if not sql_config.oauth_pattern.allowed(dataset_name):
+                    self.report.report_dropped(dataset_name)
+                    continue
+
+                try:
+                    yield from self._process_Oauth(
+                        dataset_name, inspector, schema, OAuth, sql_config,                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Unable to ingest {schema}.{OAuth} due to an exception.\n {traceback.format_exc()}"
+                    )
+                    self.report.report_warning(
+                        f"{schema}.{OAuth}", f"Ingestion error: {e}"
+                    )
+        except Exception as e:
+            self.report.report_failure(f"{schema}", f"Tables error: {e}") 
+            
+    def _process_Oauth(
+        self,
+        dataset_name: str,
+        inspector: Inspector,
+        schema: str,
+        OAuth: str,
+        sql_config: SQLAlchemyConfig,
+
+    ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
+        # columns = self._get_columns(dataset_name, inspector, schema, table)
+        columns = []
+        dataset_urn = make_dataset_urn_with_platform_instance(
+            self.platform,
+            dataset_name,
+            self.config.platform_instance,
+            self.config.env,
+        )
+        dataset_snapshot = DatasetSnapshot(
+            urn=dataset_urn,
+            aspects=[StatusClass(removed=False)],
+        )
+        # Add table to the checkpoint state
+        self.stale_entity_removal_handler.add_entity_to_state("OAuth", dataset_urn)
+        description, properties, location_urn = self.get_oauth_properties(
+            inspector, schema, OAuth
+        )
+
+        # Tablename might be different from the real table if we ran some normalisation ont it.
+        # Getting normalized table name from the dataset_name
+        # Table is the last item in the dataset name
+        normalised_table = OAuth
+        splits = dataset_name.split(".")
+        if splits:
+            normalised_table = splits[-1]
+            if properties and normalised_table != OAuth:
+                properties["original_table_name"] = OAuth
+
+        dataset_properties = DatasetPropertiesClass(
+            name=normalised_table,
+            description=description,
+            customProperties=properties,
+        )
+        dataset_snapshot.aspects.append(dataset_properties)
+
+       
+
+        # extra_tags = self.get_extra_tags(inspector, schema, table)
+        extra_tags = list()
+        pk_constraints: dict = inspector.get_pk_constraint(OAuth, schema)
+        
+        foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, OAuth)
+    
+        schema_fields = self.get_schema_fields(
+            dataset_name, columns, pk_constraints, tags=extra_tags
+        )
+        schema_metadata = get_schema_metadata(
+            self.report,
+            dataset_name,
+            self.platform,
+            columns,
+            pk_constraints,
+            foreign_keys,
+            schema_fields,
+        )
+        dataset_snapshot.aspects.append(schema_metadata)
+        db_name = self.get_db_name(inspector)
+        
+        # table_tags = self.get_extra_tags(inspector, schema, table)
+        
+        tags_to_add = []
+        # if table_tags:
+        #     tags_to_add.extend(
+        #         [make_tag_urn(f"{table_tags.get(table)}")]
+        #     )
+        #     yield self.gen_tags_aspect_workunit(dataset_urn, tags_to_add)
+            
+        yield from self.add_table_to_schema_container(dataset_urn, db_name, schema)
+        mce = MetadataChangeEvent(proposedSnapshot=dataset_snapshot)
+        wu = SqlWorkUnit(id=dataset_name, mce=mce)
+        self.report.report_workunit(wu)
+        yield wu
+        dpi_aspect = self.get_dataplatform_instance_aspect(dataset_urn=dataset_urn)
+        if dpi_aspect:
+            yield dpi_aspect
+        subtypes_aspect = MetadataWorkUnit(
+            id=f"{dataset_name}-subtypes",
+            mcp=MetadataChangeProposalWrapper(
+                entityType="dataset",
+                changeType=ChangeTypeClass.UPSERT,
+                entityUrn=dataset_urn,
+                aspectName="subTypes",
+                aspect=SubTypesClass(typeNames=["OAuth"]),
+            ),
+        )
+        self.report.report_workunit(subtypes_aspect)
+        yield subtypes_aspect
+       
+        yield from self._get_domain_wu(
+            dataset_name=dataset_name,
+            entity_urn=dataset_urn,
+            entity_type="dataset",
+            sql_config=sql_config,
+        )   
+    
     def _process_projections(
         self,
         dataset_name: str,
@@ -1308,10 +1482,16 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         pk_constraints: dict = inspector.get_pk_constraint(table, schema)
         
         foreign_keys = self._get_foreign_keys(dataset_urn, inspector, schema, table)
-    
+        
+        # dataset_names = dataset_name.split(".")
+        # dataset_names[0] = "Entities"
+        # name = ".".join(dataset_names)
+        # print(name)
+
         schema_fields = self.get_schema_fields(
             dataset_name, columns, pk_constraints, tags=extra_tags
         )
+      
         schema_metadata = get_schema_metadata(
             self.report,
             dataset_name,
@@ -1321,6 +1501,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             foreign_keys,
             schema_fields,
         )
+      
         dataset_snapshot.aspects.append(schema_metadata)
         db_name = self.get_db_name(inspector)
         
@@ -1496,6 +1677,62 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         else:
             return None
 
+    def get_oauth_properties(
+        self, inspector: Inspector, schema: str, model: str
+    ) -> Tuple[Optional[str], Dict[str, str], Optional[str]]:
+        description: Optional[str] = None
+        properties: Dict[str, str] = {}
+
+        # The location cannot be fetched generically, but subclasses may override
+        # this method and provide a location.
+        location: Optional[str] = None
+
+        try:
+            # SQLAlchemy stubs are incomplete and missing this method.
+            # PR: https://github.com/dropbox/sqlalchemy-stubs/pull/223.
+            table_info: dict = inspector.get_oauth_comment(model, schema)  # type: ignore
+        except NotImplementedError:
+            return description, properties, location
+        except ProgrammingError as pe:
+            # Snowflake needs schema names quoted when fetching table comments.
+            logger.debug(
+                f"Encountered ProgrammingError. Retrying with quoted schema name for schema {schema} and table {model}",
+                pe,
+            )
+            table_info: dict = inspector.get_oauth_comment(model, f'"{schema}"')  # type: ignore
+
+        description = table_info.get("text")
+        if type(description) is tuple:
+            # Handling for value type tuple which is coming for dialect 'db2+ibm_db'
+            description = table_info["text"][0]
+
+        # The "properties" field is a non-standard addition to SQLAlchemy's interface.
+        properties = table_info.get("properties", {})
+        return description, properties, location
+    
+    def get_dataplatform_instance_aspect(
+        self, dataset_urn: str
+    ) -> Optional[SqlWorkUnit]:
+        # If we are a platform instance based source, emit the instance aspect
+        if self.config.platform_instance:
+            mcp = MetadataChangeProposalWrapper(
+                entityType="dataset",
+                changeType=ChangeTypeClass.UPSERT,
+                entityUrn=dataset_urn,
+                aspectName="dataPlatformInstance",
+                aspect=DataPlatformInstanceClass(
+                    platform=make_data_platform_urn(self.platform),
+                    instance=make_dataplatform_instance_urn(
+                        self.platform, self.config.platform_instance
+                    ),
+                ),
+            )
+            wu = SqlWorkUnit(id=f"{dataset_urn}-dataPlatformInstance", mcp=mcp)
+            self.report.report_workunit(wu)
+            return wu
+        else:
+            return None
+    
     def _get_columns(
         self, dataset_name: str, inspector: Inspector, schema: str, table: str
     ) -> List[dict]:
