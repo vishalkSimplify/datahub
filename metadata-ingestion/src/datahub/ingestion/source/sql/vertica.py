@@ -23,7 +23,7 @@ from pydantic.class_validators import validator
 from sqlalchemy import sql, util
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.sqltypes import TIME, TIMESTAMP, String
-from sqlalchemy_vertica.base import VerticaDialect
+from sqlalchemy_vertica.base import VerticaDialect 
 
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.decorators import (
@@ -51,13 +51,13 @@ class UUID(String):
     __visit_name__ = "UUID"
 
 
+
 def TIMESTAMP_WITH_TIMEZONE(*args, **kwargs):
-    kwargs["timezone"] = True
+    kwargs['timezone'] = True
     return TIMESTAMP(*args, **kwargs)
 
-
 def TIME_WITH_TIMEZONE(*args, **kwargs):
-    kwargs["timezone"] = True
+    kwargs['timezone'] = True
     return TIME(*args, **kwargs)
 
 
@@ -106,6 +106,27 @@ def get_models_names(self, connection, schema=None, **kw):
         
         
         return [row[0] for row in c]
+def get_projection_names(self, connection, schema=None, **kw):
+    if schema is not None:
+        schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
+    else:
+        schema_condition = "1"
+        
+        
+
+    get_projection_sql = sql.text(dedent("""
+        SELECT projection_name
+        from v_catalog.projections
+        WHERE lower(projection_schema) =  '%(schema)s'
+        ORDER BY projection_name
+        """  % {'schema': schema}))
+    
+    c = connection.execute(get_projection_sql)
+    
+    return [row[0] for row in c]
+        
+        
+    
     
 def get_Oauth_names(self, connection, schema=None, **kw):
 
@@ -225,7 +246,7 @@ def get_columns(self, connection, table_name, schema=None, **kw):
     return columns
 
 
-def get_projection(self, connection, projection_name, schema=None, **kw):
+def get_projections_columns(self, connection, projection_name, schema=None, **kw):
     if schema is not None:
         schema_condition = "lower(projection_schema) = '%(schema)s'" % {'schema': schema.lower()}
     else:
@@ -572,15 +593,13 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
                 
             """ % {'model': model_name,'schema': schema, 'attr_name': attr_names}))
         
-        print("^^^^^^^^"*20)
-        print(get_attr_details)
+        
         
         
         value_final = dict()
         attr_details_dict = {"attr_name": attr_names}
         for data in connection.execute(get_attr_details):
-            print(data)
-            print("*****"*30)
+           
             
             if len(attr_fields) > 1:
                 
@@ -594,25 +613,12 @@ def get_model_comment(self, connection, model_name, schema=None, **kw):
                     value_final[attr_fields[0]] = list()
                 value_final[attr_fields[0]].append(data[0])
                 
-            # inner_string = ""
-            # for inner_index, each in  enumerate(data):
-            #     if inner_index == 0:
-            #         inner_string += str(each)
-            #     else:
-            #         inner_string += " - " + str(each)
-                
-                
-            # value_final += inner_string + ",  "
-        
+          
          
         attr_details_dict.update(value_final)
         attributes_details.append(attr_details_dict)
         
-        # for putting in string and removed \n from data
-        # attr_details_dict = "attr_name : " + str(attr_names) + " , Value : " + str(value_final)
-        # attributes_details += str(attr_details_dict) 
         
-
     return {"text": "This Vertica module is still is development Process", "properties": {"used_by": str(used_by),
             "Model Attrributes ": str(attr_name),"Model Specifications":str(attributes_details)}}
 
@@ -779,7 +785,7 @@ VerticaDialect.get_columns = get_columns
 VerticaDialect._get_column_info = _get_column_info
 VerticaDialect.get_pk_constraint = get_pk_constraint
 VerticaDialect._get_extra_tags = _get_extra_tags
-VerticaDialect.get_projection = get_projection
+VerticaDialect.get_projection_names = get_projection_names
 VerticaDialect.get_table_comment = get_table_comment
 VerticaDialect.get_projection_comment = get_projection_comment
 VerticaDialect._get_properties_keys = _get_properties_keys
@@ -806,7 +812,7 @@ class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
 class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "verticentity")
+        super().__init__(config, ctx, "vertica_projection")
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
