@@ -1,10 +1,15 @@
 import datetime
 import logging
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+import json
 import traceback
 from abc import abstractmethod
+from collections import defaultdict
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
+from sqlalchemy import sql, util
+from textwrap import dedent
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -36,6 +41,7 @@ from datahub.emitter.mce_builder import (
     make_dataset_urn_with_platform_instance,
     make_domain_urn,
     make_tag_urn,
+    dataset_urn_to_key
 )
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.mcp_builder import (
@@ -222,8 +228,8 @@ class SQLSourceReport(StaleEntityRemovalSourceReport):
         elif ent_type == "OAuth":
             self.Outh_scanned += 1
             
-        elif ent_type == "entities":
-            self.entities_collected += 1
+        # elif ent_type == "entities":
+        #     self.entities_collected += 1
         else:
             raise KeyError(f"Unknown entity {ent_type}.")
 
@@ -247,7 +253,7 @@ class SQLAlchemyStatefulIngestionConfig(StatefulStaleMetadataRemovalConfig):
     """
 
     _entity_types: List[str] = pydantic.Field(
-        default=["assertion", "container", "table", "view","Projection","models","Outh","entities"]
+        default=["assertion", "container", "table", "view","Projection","models","Outh"]
     )
 
 
@@ -306,9 +312,8 @@ class SQLAlchemyConfig(StatefulIngestionConfigBase):
     include_Outh: Optional[bool] = Field(
         default=True, description="Whether OAuth should be ingested."
     )
-    entities : Optional[bool] =  Field(
-        default=True, description="Whether entities should be Ingested."
-    )
+  
+   
     profiling: GEProfilingConfig = GEProfilingConfig()
     # Custom Stateful Ingestion settings
     stateful_ingestion: Optional[SQLAlchemyStatefulIngestionConfig] = None
@@ -500,7 +505,7 @@ config_options_to_report = [
     "include_projections",
     "include_models",
     "include_Outh"
-    "entities"
+
 ]
 
 # flags to emit telemetry for
@@ -658,8 +663,8 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 backcompat_instance_for_guid=self.config.env,
                 
                 
-                clusterType = all_properties_keys.get("cluster_type", "AMAN's CLuster"),
-                clusterSize = all_properties_keys.get("cluster_size", "8999 GB"),
+                clusterType = all_properties_keys.get("cluster_type", "Vertica's CLuster"),
+                clusterSize = all_properties_keys.get("cluster_size", "09 GB"),
                 subClusters = all_properties_keys.get("Subcluster", "MANY"),
                 communalStoragePath = all_properties_keys.get("communinal_storage_path", "/dev/sda1"),
             )
@@ -770,7 +775,11 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 
             Outh_schema = "Entities"   
             if sql_config.include_Outh:
-                yield from self.loop_Oauth(inspector,Outh_schema,sql_config)               
+                yield from self.loop_Oauth(inspector,Outh_schema,sql_config)    
+                
+            
+           
+                             
             
 
         # Clean up stale entities.
@@ -920,10 +929,10 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         schema: str,
         sql_config: SQLAlchemyConfig,
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
-        projections_seen: Set[str] = set()
-      
+        Projections_seen: Set[str] = set()
         try:
-            table_tags = self.get_extra_tags(inspector, schema, "projection")
+            projection_tags = self.get_extra_tags(inspector, schema, "projection")
+            
             for projection in inspector.get_projection_names(schema):
                
                 schema, projection = self.standardize_schema_table_names(
@@ -935,20 +944,20 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
 
                 dataset_name = self.normalise_dataset_name(dataset_name)
 
-                if dataset_name not in projections_seen:
-                    projections_seen.add(dataset_name)
+                if dataset_name not in Projections_seen:
+                    Projections_seen.add(dataset_name)
                 else:
                     logger.debug(f"{dataset_name} has already been seen, skipping...")
                     continue
 
                 self.report.report_entity_scanned(dataset_name, ent_type="projection")
-                if not sql_config.projection_pattern.allowed(dataset_name):
+                if not sql_config.table_pattern.allowed(dataset_name):
                     self.report.report_dropped(dataset_name)
                     continue
 
                 try:
                     yield from self._process_projections(
-                        dataset_name, inspector, schema, projection, sql_config, table_tags
+                        dataset_name, inspector, schema, projection, sql_config, projection_tags
                     )
                 except Exception as e:
                     logger.warning(
@@ -1164,9 +1173,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         sql_config: SQLAlchemyConfig,
         table_tags: Dict[str,str] = dict()
     ) -> Iterable[Union[SqlWorkUnit, MetadataWorkUnit]]:
-        columns = inspector.get_columns(projection, schema)
-   
-        # columns = self._get_projection(dataset_name, inspector, schema, projection)
+        columns = self._get_columns(dataset_name, inspector, schema, projection)
         dataset_urn = make_dataset_urn_with_platform_instance(
             self.platform,
             dataset_name,
@@ -1200,26 +1207,8 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         )
         dataset_snapshot.aspects.append(dataset_properties)
 
-        if location_urn:
-            external_upstream_table = UpstreamClass(
-                dataset=location_urn,
-                type=DatasetLineageTypeClass.COPY,
-            )
-            lineage_mcpw = MetadataChangeProposalWrapper(
-                entityType="dataset",
-                changeType=ChangeTypeClass.UPSERT,
-                entityUrn=dataset_snapshot.urn,
-                aspectName="upstreamLineage",
-                aspect=UpstreamLineage(upstreams=[external_upstream_table]),
-            )
-            lineage_wu = MetadataWorkUnit(
-                id=f"{self.platform}-{lineage_mcpw.entityUrn}-{lineage_mcpw.aspectName}",
-                mcp=lineage_mcpw,
-            )
-            self.report.report_workunit(lineage_wu)
-            yield lineage_wu
 
-        # extra_tags = self.get_extra_tags(inspector, schema, projection)
+        # extra_tags = self.get_extra_tags(inspector, schema, table)
         extra_tags = list()
         pk_constraints: dict = inspector.get_pk_constraint(projection, schema)
         
@@ -1239,6 +1228,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         )
         dataset_snapshot.aspects.append(schema_metadata)
         db_name = self.get_db_name(inspector)
+        
         # table_tags = self.get_extra_tags(inspector, schema, table)
         
         tags_to_add = []
@@ -1263,7 +1253,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 changeType=ChangeTypeClass.UPSERT,
                 entityUrn=dataset_urn,
                 aspectName="subTypes",
-                aspect=SubTypesClass(typeNames=["projection"]),
+                aspect=SubTypesClass(typeNames=["Projections"]),
             ),
         )
         self.report.report_workunit(subtypes_aspect)
@@ -1275,6 +1265,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             entity_type="dataset",
             sql_config=sql_config,
         )
+
         
           
         
@@ -1351,25 +1342,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             customProperties=properties,
         )
         dataset_snapshot.aspects.append(dataset_properties)
-
-        if location_urn:
-            external_upstream_table = UpstreamClass(
-                dataset=location_urn,
-                type=DatasetLineageTypeClass.COPY,
-            )
-            lineage_mcpw = MetadataChangeProposalWrapper(
-                entityType="dataset",
-                changeType=ChangeTypeClass.UPSERT,
-                entityUrn=dataset_snapshot.urn,
-                aspectName="upstreamLineage",
-                aspect=UpstreamLineage(upstreams=[external_upstream_table]),
-            )
-            lineage_wu = MetadataWorkUnit(
-                id=f"{self.platform}-{lineage_mcpw.entityUrn}-{lineage_mcpw.aspectName}",
-                mcp=lineage_mcpw,
-            )
-            self.report.report_workunit(lineage_wu)
-            yield lineage_wu
+        
 
         # extra_tags = self.get_extra_tags(inspector, schema, table)
         extra_tags = list()
@@ -1884,7 +1857,9 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
                 columns,
                 canonical_schema=schema_fields,
             )
-        description, properties, _ = self.get_table_properties(inspector, schema, view)
+        description, properties, location_urn = self.get_table_properties(
+            inspector, schema, view
+        )
         try:
             view_definition = inspector.get_view_definition(view, schema)
             if view_definition is None:
@@ -1923,6 +1898,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             
         # Add view to the checkpoint state
         self.stale_entity_removal_handler.add_entity_to_state("view", dataset_urn)
+        
 
         dataset_properties = DatasetPropertiesClass(
             name=view,
@@ -2067,7 +2043,7 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
             except NotImplementedError:
                 logger.debug("Source does not support generating profile candidates.")
 
-        for projection in inspector.get_projection_names(schema):
+        for projection in inspector.get_projections_columns(schema):
                
             schema, projection = self.standardize_schema_table_names(
                 schema=schema, entity=projection
@@ -2280,6 +2256,9 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         return dict(
             schema=schema, table=table, partition=partition, custom_sql=custom_sql
         )
+        
+        
+   
 
     def get_report(self):
         return self.report
@@ -2288,4 +2267,3 @@ class Vertica_SQLAlchemySource(StatefulIngestionSourceBase):
         self.prepare_for_commit()
         
         
-

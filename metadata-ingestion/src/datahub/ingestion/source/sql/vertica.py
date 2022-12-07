@@ -1,4 +1,4 @@
-from functools import cache
+
 import re
 import math
 from textwrap import dedent
@@ -741,7 +741,9 @@ def _get_database_keys(self, connection, db_name) -> dict:
             cluster_type = each.database_mode
             if cluster_type.lower() == 'eon':
                 for each in communal_data_res:
+                   
                     communical_path += str(each.location_path) + " | "
+                   
 
         SUBCLUSTER_SIZE = sql.text(dedent("""
                         SELECT subclusters.subcluster_name , CAST(sum(disk_space_used_mb // 1024) as varchar(10)) as subclustersize from subclusters  
@@ -761,7 +763,7 @@ def _get_database_keys(self, connection, db_name) -> dict:
         for each in connection.execute(cluster__size):
             cluster_size = str(each.cluster_size) + " GB"
 
-        
+       
         return {"cluster_type": cluster_type, "cluster_size": cluster_size, 'Subcluster': subclusters,
                 "communinal_storage_path": communical_path}
         
@@ -807,16 +809,22 @@ class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
 
 @platform_name("Vertica")
 @config_class(VerticaConfig)
-@support_status(SupportStatus.TESTING)
+@support_status(SupportStatus.CERTIFIED)
 @capability(SourceCapability.PLATFORM_INSTANCE, "Enabled by default")
 @capability(SourceCapability.DOMAINS, "Supported via the `domain` config field")
+@capability(SourceCapability.LINEAGE_COARSE, "Optionally enabled via configuration")
+@capability(SourceCapability.DELETION_DETECTION, "Enabled via stateful ingestion")
 class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica")
+        super().__init__(config, ctx, "vertica_lineage")
+        self.lineage_metadata: Optional[Dict[str, Set[str]]] = None
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> "VerticaSource":
         config = VerticaConfig.parse_obj(config_dict)
         return cls(config, ctx)
 
+
+
+    
     
