@@ -762,13 +762,11 @@ def _get_database_keys(self, connection, db_name) -> dict:
 
         cluster_type = ""
         communical_path = ""
-        communal_data_res = connection.execute(communal_storage_path)
         cluster_type_res = connection.execute(cluster_type_qry)
         for each in cluster_type_res:
             cluster_type = each.database_mode
             if cluster_type.lower() == 'eon':
-                for each in communal_data_res:
-                   
+                for each in connection.execute(communal_storage_path): 
                     communical_path += str(each.location_path) + " | "
                    
 
@@ -843,7 +841,7 @@ class VerticaConfig(Vertica_BasicSQLAlchemyConfig):
 @capability(SourceCapability.DELETION_DETECTION, "Enabled via stateful ingestion")
 class VerticaSource(Vertica_SQLAlchemySource):
     def __init__(self, config: VerticaConfig, ctx: PipelineContext) -> None:
-        super().__init__(config, ctx, "vertica_lineage1")
+        super().__init__(config, ctx, "vertica_lineage2")
         self._lineage_map: Optional[Dict[str, List[Tuple[str, str, str]]]] = None
 
     @classmethod
