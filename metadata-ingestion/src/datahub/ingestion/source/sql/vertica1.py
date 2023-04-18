@@ -1174,9 +1174,9 @@ class VerticaSource(SQLAlchemySource):
                         # (<upstream_table_name>, <empty_json_list_of_upstream_table_columns>, <empty_json_list_of_downstream_view_columns>)
                         (view_upstream, "[]", "[]")
                     )
-
+                    
                     num_edges += 1
-
+                    
         except Exception as e:
             self.warn(
                 logger,
